@@ -1,3 +1,10 @@
+"""ProfitPilot AI — offline-first business analyst for small businesses.
+Run with: streamlit run app.py
+
+This demo intentionally needs no model API key. It uses real pandas analysis,
+explainable decision rules, a conversational business assistant, and optional
+public web search through DuckDuckGo HTML results.
+"""
 from __future__ import annotations
 
 import html
@@ -16,6 +23,10 @@ st.set_page_config(page_title="ProfitPilot — AI + Business", page_icon="PF", l
 st.markdown(
     """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Patrick+Hand&display=swap');
+html, body, [data-testid="stAppViewContainer"], button, input, textarea { font-family:'Fredoka','Comic Sans MS','Trebuchet MS',cursive !important; }
+h1, h2, h3, h4, [data-testid="stMetricValue"] { font-family:'Fredoka','Cooper Black','Comic Sans MS',cursive !important; font-weight:700 !important; letter-spacing:-.035em; }
+.stage-copy p, .story, .advice-card, [data-testid="stChatMessage"] { font-family:'Patrick Hand','Comic Sans MS',cursive !important; font-size:1.12rem; }
 .block-container { padding: 2.5rem 2rem 4rem; max-width: 980px; }
 [data-testid="stSidebar"] { background:#f7f7f7; border-right:1px solid #e5e5e5; }
 [data-testid="stSidebar"] .block-container { padding:1.3rem 1rem; }
