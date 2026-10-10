@@ -257,7 +257,7 @@ with st.sidebar:
         st.session_state.base_url = st.text_input("API base URL", value=st.session_state.base_url, help="Edit this for OpenRouter, Together, Groq, DeepSeek, Ollama, or another compatible endpoint.")
         st.session_state.tavily_key = st.text_input("Tavily search key (optional)", type="password", value=st.session_state.tavily_key)
         if st.session_state.api_key:
-            st.success(f"{provider} connected", icon="✓")
+            st.success(f"{provider} connected")
         else:
             st.info("Add an API key to start chatting.")
 
