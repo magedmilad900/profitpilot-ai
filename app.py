@@ -326,8 +326,7 @@ components.html('''
   #scene:before,#scene:after { content:""; position:absolute; border-radius:50%; opacity:.75; animation:drift 8s ease-in-out infinite; }
   #scene:before { width:120px; height:120px; background:#ffcf56; right:7%; top:12%; }
   #scene:after { width:76px; height:76px; background:#8fd3ff; left:7%; bottom:10%; animation-delay:-3s; }
-  .copy { position:absolute; z-index:2; left:34px; top:34px; max-width:500px; }
-  .copy-card { padding:22px 25px 20px; border:2px solid #191919; border-radius:22px; background:rgba(255,255,255,.78); box-shadow:5px 6px 0 #191919; }
+  .copy { position:absolute; z-index:2; left:38px; top:38px; max-width:480px; }
   .kicker { font-size:12px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#555; }
   h2 { font-family:'Bangers','Fredoka','Comic Sans MS',cursive; font-size:47px; line-height:1.02; letter-spacing:1px; margin:10px 0 12px; color:#151515; }
   p { color:#555; max-width:390px; line-height:1.5; font-size:18px; font-family:'Patrick Hand','Comic Sans MS',cursive; }
@@ -349,7 +348,7 @@ components.html('''
   @keyframes blink { 0%,44%,48%,100% { transform:scaleY(1); } 46% { transform:scaleY(.1); } }
 </style>
 <div id="scene">
-  <div class="copy"><div class="copy-card"><div class="kicker">A tiny business analyst</div><h2>Find the leak<br>fix the business</h2><p>ProfitPilot looks at your numbers and turns them into one clear next move</p></div></div>
+  <div class="copy"><div class="kicker">A tiny business analyst</div><h2>Find the leak<br>fix the business</h2><p>ProfitPilot looks at your numbers and turns them into one clear next move</p></div>
   <div class="spark spark-one"></div><div class="spark spark-two"></div>
   <div id="arrow-mascot" aria-label="ProfitPilot arrow mascot">↗</div>
 </div>
