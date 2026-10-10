@@ -1,24 +1,49 @@
-import os
 import json
 import requests
 import pandas as pd
 import streamlit as st
 import plotly.express as px
 
-st.set_page_config(page_title="ProfitPilot AI", page_icon="📈", layout="wide")
+st.set_page_config(page_title="ProfitPilot", page_icon="📈", layout="wide")
 
-# ---------- Visual style ----------
+# Clean, mostly-white interface inspired by modern chat apps
 st.markdown("""
 <style>
-.block-container {padding-top: 1.4rem; padding-bottom: 2rem;}
-.hero {padding: 1.4rem 1.6rem; border-radius: 18px; background: linear-gradient(120deg,#10243a,#176b63); color: white; margin-bottom: 1rem;}
-.hero h1 {margin:0; font-size:2.2rem;}
-.hero p {margin:.4rem 0 0 0; opacity:.92;}
-.small-note {color:#64748b; font-size:.88rem;}
+:root { color-scheme: light; }
+.stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+    background: #ffffff !important;
+}
+[data-testid="stSidebar"] {
+    background: #f7f7f8 !important;
+    border-right: 1px solid #e8e8eb;
+}
+[data-testid="stSidebar"] > div { background: #f7f7f8 !important; }
+.block-container { max-width: 980px; padding-top: 1.8rem; padding-bottom: 7rem; }
+h1, h2, h3, p, label, span, div { color: #202123; }
+.brand { font-size: 1.12rem; font-weight: 700; letter-spacing: -.3px; padding: .4rem 0 1rem; }
+.brand-mark { display:inline-flex; width:30px; height:30px; align-items:center; justify-content:center;
+    background:#202123; color:white; border-radius:9px; margin-right:8px; }
+.welcome { text-align:center; padding: 3.0rem 1rem 1.2rem; }
+.welcome h1 { font-size:2rem; font-weight:650; letter-spacing:-.8px; margin-bottom:.5rem; }
+.welcome p { color:#6b7280; font-size:1rem; }
+div[data-testid="stChatMessage"] { border: 0; padding: .9rem 0; }
+div[data-testid="stChatMessageContent"] { line-height:1.7; }
+div[data-testid="stChatInput"] {
+    border-radius: 18px !important;
+    border: 1px solid #dedee3 !important;
+    box-shadow: 0 4px 18px rgba(0,0,0,.04);
+}
+div[data-testid="stChatInput"] textarea { background:#fff !important; }
+.stButton > button {
+    border-radius: 12px; border: 1px solid #e5e5e8; background: #fff;
+    color:#242424; min-height: 2.5rem;
+}
+.stButton > button:hover { border-color:#b7b7bf; background:#f9f9fa; }
+div[data-testid="stMetric"] { background:#fafafa; border:1px solid #ededf0; padding:1rem; border-radius:14px; }
+hr { border-color:#eeeeef; }
+.small-muted { color:#777; font-size:.85rem; }
 </style>
 """, unsafe_allow_html=True)
-
-st.markdown('<div class="hero"><h1>📈 ProfitPilot AI</h1><p>Your AI business analyst: turn sales data into clearer, smarter profit decisions.</p></div>', unsafe_allow_html=True)
 
 REQUIRED = {"date", "product", "units", "unit_price", "unit_cost"}
 
@@ -70,14 +95,12 @@ def normalize(df):
 
 def business_summary(df):
     product = df.groupby("product", as_index=False).agg(
-        units=("units","sum"), revenue=("revenue","sum"), cost=("cost","sum"),
-        profit=("profit","sum")
+        units=("units","sum"), revenue=("revenue","sum"), cost=("cost","sum"), profit=("profit","sum")
     )
     product["margin_pct"] = (product["profit"] / product["revenue"].replace(0, pd.NA) * 100).fillna(0)
     daily = df.groupby("date", as_index=False).agg(revenue=("revenue","sum"), profit=("profit","sum"))
-    total_rev = float(df["revenue"].sum())
-    total_profit = float(df["profit"].sum())
-    margin = (total_profit / total_rev * 100) if total_rev else 0
+    total_rev, total_profit = float(df["revenue"].sum()), float(df["profit"].sum())
+    margin = total_profit / total_rev * 100 if total_rev else 0
     return product.sort_values("profit", ascending=False), daily, total_rev, total_profit, margin
 
 def rules_based_insights(df, products, revenue, profit, margin):
@@ -85,129 +108,183 @@ def rules_based_insights(df, products, revenue, profit, margin):
     if len(products):
         best = products.iloc[0]
         worst = products.sort_values("profit").iloc[0]
-        insights.append(f"Top profit contributor: {best['product']} generated {best['profit']:,.2f} in gross profit.")
+        insights.append(f"أعلى منتج في إجمالي الربح هو **{best['product']}**، وحقق {best['profit']:,.2f} ربحًا إجماليًا.")
         if worst["product"] != best["product"]:
-            insights.append(f"Review {worst['product']}: it generated the lowest total gross profit ({worst['profit']:,.2f}). Check demand, pricing, and supplier costs before changing stock.")
-        low_margin = products[products["margin_pct"] < 25]
-        if len(low_margin):
-            names = ", ".join(low_margin["product"].astype(str).head(3).tolist())
-            insights.append(f"Margin watchlist: {names} have gross margins below 25%; test a small price or sourcing change rather than making a large immediate change.")
-        high_units = products.sort_values("units", ascending=False).iloc[0]
-        insights.append(f"Demand signal: {high_units['product']} sold the most units ({high_units['units']:,.0f}); check inventory availability before promotions.")
+            insights.append(f"راجع أداء **{worst['product']}**؛ فهو الأقل في إجمالي الربح ({worst['profit']:,.2f}). راجع الطلب والتسعير وتكلفة المورد قبل اتخاذ قرار.")
+        low = products[products["margin_pct"] < 25]
+        if len(low):
+            names = "، ".join(low["product"].astype(str).head(3).tolist())
+            insights.append(f"هامش الربح أقل من 25% في: {names}. جرّب تغييرًا بسيطًا في السعر أو التكلفة واختبر أثره.")
+        popular = products.sort_values("units", ascending=False).iloc[0]
+        insights.append(f"الأكثر مبيعًا بالوحدات هو **{popular['product']}** ({popular['units']:,.0f} وحدة). تأكد من توفر مخزون كافٍ.")
     if margin < 20:
-        insights.append("Overall gross margin is below 20%. Audit discounts, supplier costs, and product mix.")
+        insights.append("هامش الربح الإجمالي أقل من 20%؛ راجع الخصومات وتكلفة الشراء ومزيج المنتجات.")
     elif margin >= 40:
-        insights.append("Overall gross margin is healthy at this snapshot; validate whether sales volume is sufficient to cover fixed operating costs.")
-    if len(df) >= 7:
-        half = max(1, len(df)//2)
-        first = df.sort_values("date").iloc[:half]["profit"].sum()
-        second = df.sort_values("date").iloc[half:]["profit"].sum()
-        if first and second < first * 0.8:
-            insights.append("Recent rows show lower total profit than earlier rows. Check whether this reflects fewer days, seasonality, stockouts, or a genuine decline before acting.")
+        insights.append("هامش الربح الإجمالي جيد في البيانات الحالية، لكن تأكد أن حجم المبيعات يغطي المصاريف الثابتة.")
     return insights
 
-def gemini_insights(api_key, summary_text):
+def gemini_reply(api_key, history, summary_text):
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
-    prompt = f"""You are a cautious small-business analyst. Analyze the following summarized sales data.
-Give 4 concise recommendations. For each, state the evidence, a practical next step, and a caveat.
-Do not invent facts, do not claim causation, and label estimates as estimates. Focus on profit, margin, inventory, and experiments.
-Data:
-{summary_text}
-Return plain text with numbered recommendations."""
+    system = (
+        "You are ProfitPilot, a warm, practical business analyst for small businesses. "
+        "Speak naturally, clearly, and without exaggerated AI language. Use the provided sales summary as evidence. "
+        "Do not invent facts. State uncertainty when needed. Give concise actionable advice. "
+        "Reply in the same language as the latest user message. Data summary: " + summary_text
+    )
+    contents = [{"role":"user", "parts":[{"text":system}]}]
+    for msg in history[-10:]:
+        role = "model" if msg["role"] == "assistant" else "user"
+        contents.append({"role":role, "parts":[{"text":msg["content"]}]})
     try:
-        r = requests.post(url, params={"key": api_key}, json={"contents":[{"parts":[{"text":prompt}]}]}, timeout=25)
+        r = requests.post(url, params={"key":api_key},
+                          json={"contents":contents, "generationConfig":{"temperature":0.6}},
+                          timeout=30)
         if r.ok:
-            data = r.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        return f"AI service returned status {r.status_code}. Showing built-in analysis instead."
-    except Exception as e:
-        return f"Could not reach the AI service ({type(e).__name__}). Showing built-in analysis instead."
+            return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return "مش قادر أوصل لخدمة Gemini دلوقتي. جرّب تاني بعد شوية، أو استخدم التحليل الأساسي من غير مفتاح API."
+    except Exception:
+        return "حصلت مشكلة في الاتصال بخدمة Gemini. اتأكد من الإنترنت ومفتاح API، وجرب تاني."
+
+def local_reply(prompt, products, revenue, profit, margin, insights):
+    q = prompt.lower()
+    best = products.iloc[0] if len(products) else None
+    worst = products.sort_values("profit").iloc[0] if len(products) else None
+    if any(x in q for x in ["profit", "ربح", "مكسب", "أربح"]):
+        return f"بص، إجمالي الإيرادات عندك **{revenue:,.2f}**، والربح الإجمالي **{profit:,.2f}** بهامش **{margin:.1f}%**. الربح هنا قبل المصاريف الثابتة والضرائب والشحن غير المسجل في تكلفة الوحدة."
+    if any(x in q for x in ["best", "أحسن", "افضل", "أفضل", "منتج"]):
+        return f"حسب البيانات، **{best['product']}** هو الأعلى في إجمالي الربح بقيمة **{best['profit']:,.2f}**، بينما **{worst['product']}** هو الأقل. ده مش معناه نوقف المنتج الأقل فورًا؛ راجع الطلب والمخزون وتكلفة المورد الأول."
+    if any(x in q for x in ["marketing", "تسويق", "مبيعات", "sales", "grow", "نمو", "ازود", "أزود"]):
+        return "أقترح تبدأ بتجربة صغيرة بدل ما تزود الميزانية مرة واحدة: اختار منتجًا بهامش ربح جيد، جرّب عليه حملة لمدة أسبوع، وقارن الربح الناتج بتكلفة الحملة. البيانات الحالية لا توضح تكلفة التسويق أو عدد العملاء، فدي معلومات هتساعدنا نحكم بدقة."
+    return "أقدر أساعدك في فهم الأرقام واتخاذ خطوة عملية. من البيانات الحالية:\n\n" + "\n\n".join(f"- {x}" for x in insights[:4]) + "\n\nلو تحب، اسألني مثلًا: «أنهي منتج أكتر ربحًا؟» أو «إزاي أزود هامش الربح؟»"
+
+# Session state: conversations remain during this browser session
+if "chats" not in st.session_state:
+    st.session_state.chats = [{"id": 1, "title": "تحليل المبيعات", "messages": []}]
+    st.session_state.active_chat = 1
+    st.session_state.next_chat_id = 2
+if "page" not in st.session_state:
+    st.session_state.page = "Chat"
 
 with st.sidebar:
-    st.header("📂 Your data")
-    uploaded = st.file_uploader("Upload sales CSV", type=["csv"])
-    use_demo = st.toggle("Use built-in demo data", value=True if not uploaded else False)
-    st.divider()
-    st.header("✨ AI settings")
-    api_key = st.text_input("Gemini API key (optional)", type="password", help="Used only for generating AI recommendations. Leave blank to use built-in analysis.")
-    st.caption("Get a key from Google AI Studio. Never commit your key to GitHub.")
+    st.markdown('<div class="brand"><span class="brand-mark">↗</span>ProfitPilot</div>', unsafe_allow_html=True)
+    if st.button("＋  محادثة جديدة", use_container_width=True):
+        new_id = st.session_state.next_chat_id
+        st.session_state.next_chat_id += 1
+        st.session_state.chats.insert(0, {"id":new_id, "title":"محادثة جديدة", "messages":[]})
+        st.session_state.active_chat = new_id
+        st.session_state.page = "Chat"
+        st.rerun()
+    st.markdown("---")
+    st.caption("WORKSPACE")
+    if st.button("💬  المحادثة", use_container_width=True):
+        st.session_state.page = "Chat"
+    if st.button("📊  التحليلات", use_container_width=True):
+        st.session_state.page = "Analytics"
+    if st.button("📄  التقارير", use_container_width=True):
+        st.session_state.page = "Reports"
+    st.markdown("---")
+    st.caption("محادثاتك الأخيرة")
+    for chat in st.session_state.chats:
+        label = chat["title"][:27] + ("…" if len(chat["title"]) > 27 else "")
+        if st.button("◦  " + label, key=f"chat_{chat['id']}", use_container_width=True):
+            st.session_state.active_chat = chat["id"]
+            st.session_state.page = "Chat"
+            st.rerun()
+    st.markdown("---")
+    uploaded = st.file_uploader("ارفع ملف مبيعات CSV", type=["csv"])
+    use_demo = st.toggle("استخدم بيانات تجريبية", value=True if not uploaded else False)
+    with st.expander("إعدادات الذكاء الاصطناعي"):
+        api_key = st.text_input("Gemini API key (اختياري)", type="password",
+                                help="لا ترفع المفتاح على GitHub.")
+        st.caption("من غير المفتاح، تقدر تستخدم التحليل الأساسي.")
 
 try:
     if uploaded is not None:
-        raw = pd.read_csv(uploaded)
-        df = normalize(raw)
+        df = normalize(pd.read_csv(uploaded))
         data_label = uploaded.name
     elif use_demo:
         df = normalize(demo_data())
-        data_label = "Built-in demo dataset"
+        data_label = "بيانات تجريبية"
     else:
-        st.info("Upload a CSV or enable the demo dataset in the sidebar.")
-        st.stop()
+        df = pd.DataFrame()
+        data_label = "لا توجد بيانات"
 except Exception as exc:
-    st.error(f"Could not read this dataset: {exc}")
-    st.markdown("Required CSV columns: `date, product, units, unit_price, unit_cost`.")
+    st.error(f"مش قادر أقرأ الملف: {exc}")
+    st.info("الأعمدة المطلوبة: date, product, units, unit_price, unit_cost")
     st.stop()
 
 if df.empty:
-    st.warning("No valid rows found. Check your CSV values and try again.")
-    st.stop()
-
-products, daily, revenue, profit, margin = business_summary(df)
-st.caption(f"Data source: {data_label} · {len(df):,} valid rows · Gross profit excludes fixed overhead, tax, and shipping unless included in unit_cost.")
-
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Revenue", f"${revenue:,.2f}")
-c2.metric("Gross profit", f"${profit:,.2f}")
-c3.metric("Gross margin", f"{margin:.1f}%")
-c4.metric("Units sold", f"{df['units'].sum():,.0f}")
-
-st.subheader("Business performance")
-left, right = st.columns(2)
-with left:
-    fig = px.line(daily, x="date", y=["revenue","profit"], markers=True, title="Revenue vs. gross profit over time")
-    st.plotly_chart(fig, use_container_width=True)
-with right:
-    fig2 = px.bar(products.sort_values("profit", ascending=True), x="profit", y="product", orientation="h",
-                  color="margin_pct", title="Gross profit by product", labels={"profit":"Gross profit","product":"Product","margin_pct":"Margin %"})
-    st.plotly_chart(fig2, use_container_width=True)
-
-st.subheader("Product scorecard")
-display = products.copy()
-for col in ["revenue","cost","profit"]:
-    display[col] = display[col].map(lambda x: f"${x:,.2f}")
-display["margin_pct"] = display["margin_pct"].map(lambda x: f"{x:.1f}%")
-st.dataframe(display, use_container_width=True, hide_index=True)
-
-st.subheader("🧠 AI business recommendations")
-rule_insights = rules_based_insights(df, products, revenue, profit, margin)
-summary_text = {
-    "total_revenue": round(revenue,2),
-    "gross_profit": round(profit,2),
-    "gross_margin_pct": round(margin,2),
-    "product_performance": products.round(2).to_dict(orient="records"),
-    "daily_totals": daily.tail(10).round(2).to_dict(orient="records"),
-}
-if api_key.strip():
-    with st.spinner("Analyzing your business summary..."):
-        ai_text = gemini_insights(api_key.strip(), json.dumps(summary_text, default=str))
-    st.markdown(ai_text)
+    products, daily, revenue, profit, margin = pd.DataFrame(), pd.DataFrame(), 0, 0, 0
+    insights = ["ارفع ملف CSV أو فعّل البيانات التجريبية علشان نبدأ."]
 else:
-    st.caption("Built-in evidence-based checks are active. Add a Gemini API key in the sidebar for natural-language AI recommendations.")
-    for item in rule_insights:
-        st.markdown(f"- {item}")
+    products, daily, revenue, profit, margin = business_summary(df)
+    insights = rules_based_insights(df, products, revenue, profit, margin)
 
-st.download_button("⬇️ Download product scorecard CSV", data=products.to_csv(index=False).encode("utf-8"),
-                   file_name="profitpilot_product_scorecard.csv", mime="text/csv")
+active = next((c for c in st.session_state.chats if c["id"] == st.session_state.active_chat), st.session_state.chats[0])
 
-with st.expander("CSV format and assumptions"):
-    st.markdown("""
-    Your CSV must contain these columns:
-    - `date`: transaction date (for example, `2026-09-01`)
-    - `product`: product name
-    - `units`: number of units sold
-    - `unit_price`: selling price per unit
-    - `unit_cost`: direct cost per unit
+if st.session_state.page == "Analytics":
+    st.title("نظرة عامة على البزنس")
+    st.caption(f"مصدر البيانات: {data_label} · {len(df):,} صف صالح")
+    a,b,c,d = st.columns(4)
+    a.metric("الإيرادات", f"{revenue:,.2f}")
+    b.metric("الربح الإجمالي", f"{profit:,.2f}")
+    c.metric("هامش الربح", f"{margin:.1f}%")
+    d.metric("الوحدات المباعة", f"{df['units'].sum():,.0f}" if not df.empty else "0")
+    if not df.empty:
+        left,right = st.columns(2)
+        with left:
+            st.plotly_chart(px.line(daily, x="date", y=["revenue","profit"], markers=True,
+                                    title="الإيرادات والربح بمرور الوقت"), use_container_width=True)
+        with right:
+            st.plotly_chart(px.bar(products.sort_values("profit"), x="profit", y="product", orientation="h",
+                                   title="الربح الإجمالي حسب المنتج"), use_container_width=True)
+        st.subheader("أداء المنتجات")
+        st.dataframe(products, use_container_width=True, hide_index=True)
+elif st.session_state.page == "Reports":
+    st.title("التقارير")
+    st.write("نزّل ملخص أداء المنتجات كملف CSV، وافتحه في Excel أو Google Sheets.")
+    if not products.empty:
+        st.download_button("تنزيل تقرير المنتجات CSV", products.to_csv(index=False).encode("utf-8-sig"),
+                           "profitpilot_report.csv", "text/csv")
+    st.subheader("ملاحظات التحليل")
+    for item in insights:
+        st.markdown("- " + item)
+else:
+    if not active["messages"]:
+        st.markdown('<div class="welcome"><h1>أهلاً بيك، نقدر نطوّر البزنس إزاي؟</h1><p>اسأل عن المبيعات، الأرباح، المنتجات، أو الخطوة الجاية.</p></div>', unsafe_allow_html=True)
+        cols = st.columns(2)
+        suggestions = [
+            "حلّل أداء المبيعات عندي",
+            "أنهي منتج بيحقق أعلى ربح؟",
+            "إزاي أزود هامش الربح؟",
+            "اقترح عليّ 3 خطوات عملية للنمو",
+        ]
+        for i, suggestion in enumerate(suggestions):
+            with cols[i % 2]:
+                if st.button(suggestion, key=f"suggest_{i}", use_container_width=True):
+                    st.session_state.pending_prompt = suggestion
+                    st.rerun()
+    for message in active["messages"]:
+        with st.chat_message(message["role"], avatar="👤" if message["role"] == "user" else "↗"):
+            st.markdown(message["content"])
 
-    Revenue = units × unit price. Gross profit = revenue − direct cost. Gross margin = gross profit ÷ revenue.
-    This prototype provides decision support, not financial advice. Validate data and test recommendations before acting.
-    """)
+    prompt = st.chat_input("اكتب سؤالك عن البزنس...")
+    if "pending_prompt" in st.session_state:
+        prompt = st.session_state.pop("pending_prompt")
+    if prompt:
+        active["messages"].append({"role":"user", "content":prompt})
+        if active["title"] == "محادثة جديدة":
+            active["title"] = prompt[:28]
+        summary = json.dumps({
+            "revenue": round(revenue,2), "gross_profit": round(profit,2), "gross_margin_pct": round(margin,2),
+            "products": products.round(2).to_dict(orient="records") if not products.empty else [],
+            "recent_daily_totals": daily.tail(10).round(2).to_dict(orient="records") if not daily.empty else []
+        }, ensure_ascii=False, default=str)
+        if api_key.strip() and not df.empty:
+            reply = gemini_reply(api_key.strip(), active["messages"], summary)
+        else:
+            reply = local_reply(prompt, products, revenue, profit, margin, insights)
+        active["messages"].append({"role":"assistant", "content":reply})
+        st.rerun()
+
+st.markdown('<p class="small-muted">ProfitPilot يساعدك تفهم بياناتك؛ راجع الأرقام قبل اتخاذ قرارات مالية.</p>', unsafe_allow_html=True)
