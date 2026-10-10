@@ -1,10 +1,3 @@
-"""ProfitPilot AI — offline-first business analyst for small businesses.
-Run with: streamlit run app.py
-
-This demo intentionally needs no model API key. It uses real pandas analysis,
-explainable decision rules, a conversational business assistant, and optional
-public web search through DuckDuckGo HTML results.
-"""
 from __future__ import annotations
 
 import html
@@ -17,16 +10,24 @@ import pandas as pd
 import plotly.express as px
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="ProfitPilot — AI + Business", page_icon="PF", layout="wide")
 
 st.markdown(
     """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Patrick+Hand&display=swap');
-html, body, [data-testid="stAppViewContainer"], button, input, textarea { font-family:'Fredoka','Comic Sans MS','Trebuchet MS',cursive !important; }
-h1, h2, h3, h4, [data-testid="stMetricValue"] { font-family:'Fredoka','Cooper Black','Comic Sans MS',cursive !important; font-weight:700 !important; letter-spacing:-.035em; }
-.stage-copy p, .story, .advice-card, [data-testid="stChatMessage"] { font-family:'Patrick Hand','Comic Sans MS',cursive !important; font-size:1.12rem; }
+@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Fredoka:wght@400;500;600;700&family=Patrick+Hand&display=swap');
+html, body, [data-testid="stAppViewContainer"], button, input, textarea, label, [data-testid="stDataFrame"] * { font-family:'Fredoka','Comic Sans MS',cursive !important; }
+[data-testid="stSidebar"], .brand-name, .brand-sub, .side-link, .topline, [data-testid="stSidebar"] button, [data-testid="stSidebar"] label, [data-testid="stSidebar"] p { font-family:'Fredoka','Comic Sans MS',cursive !important; }
+h1, h2, h3, h4, [data-testid="stMetricValue"], .stage-copy h2 { font-family:'Bangers','Fredoka','Comic Sans MS',cursive !important; font-weight:400 !important; letter-spacing:.02em; }
+.stage-copy p, .story, .advice-card, [data-testid="stChatMessage"] { font-family:'Patrick Hand','Fredoka','Comic Sans MS',cursive !important; font-size:1.12rem; }
+.insight, .insight *, [data-testid="stExpander"] [data-testid="stMarkdownContainer"] p, [data-testid="stExpander"] [data-testid="stMarkdownContainer"] li { font-family:'Patrick Hand','Fredoka','Comic Sans MS',cursive !important; font-size:1.12rem; line-height:1.45; }
+.scorecard-wrap { overflow-x:auto; border:2px solid #191919; border-radius:16px; background:#fff; box-shadow:4px 5px 0 #191919; }
+.scorecard-table { width:100%; border-collapse:separate; border-spacing:0; font-family:'Fredoka','Comic Sans MS',cursive; font-size:.93rem; }
+.scorecard-table th { background:#ffcf56; color:#191919; font-family:'Bangers','Fredoka',cursive; font-size:1.05rem; letter-spacing:.04em; padding:.75rem .65rem; text-align:left; border-bottom:2px solid #191919; white-space:nowrap; }
+.scorecard-table td { padding:.7rem .65rem; border-bottom:1px solid #eadfca; font-family:'Fredoka','Comic Sans MS',cursive; white-space:nowrap; }
+.scorecard-table tr:nth-child(even) td { background:#fff8e8; } .scorecard-table tr:last-child td { border-bottom:0; }
 .block-container { padding: 2.5rem 2rem 4rem; max-width: 980px; }
 [data-testid="stSidebar"] { background:#f7f7f7; border-right:1px solid #e5e5e5; }
 [data-testid="stSidebar"] .block-container { padding:1.3rem 1rem; }
@@ -274,27 +275,50 @@ insights = evidence_insights(df, products, revenue, gross_profit, expenses, net_
 
 # ---------- Interactive cartoon advice experience ----------
 st.markdown('<div class="topline"><span>ProfitPilot</span><span>DEMO MODE · AI + Business</span></div>', unsafe_allow_html=True)
-st.markdown('''<div class="advice-stage">
-  <div class="stage-copy">
-    <div class="stage-kicker">A tiny business analyst</div>
-    <h2>Find the leak<br>fix the business</h2>
-    <p>ProfitPilot looks at your numbers and turns them into one clear next move</p>
-  </div>
-  <div class="floating-star star-one">✦</div><div class="floating-star star-two">✳</div>
-  <svg class="cartoon" viewBox="0 0 300 250" aria-label="ProfitPilot cartoon analyst">
-    <path class="hose" d="M54 174 C24 190 29 220 68 215 C89 212 94 194 84 181"/>
-    <path class="hose" d="M214 172 C258 180 270 212 237 224 C216 231 198 215 211 195"/>
-    <path class="hose" d="M86 198 C71 227 78 239 101 235"/>
-    <path class="hose" d="M185 198 C202 225 195 239 174 235"/>
-    <path d="M75 93 C75 47 110 24 158 29 C207 34 225 70 213 119 L201 174 C194 204 160 219 124 211 C91 204 67 177 70 142 Z" fill="#ffcf56" stroke="#191919" stroke-width="7"/>
-    <path d="M91 83 C104 42 156 31 195 59" class="hose"/>
-    <circle cx="119" cy="115" r="7" fill="#191919" class="blink"/><circle cx="174" cy="115" r="7" fill="#191919" class="blink"/>
-    <path d="M120 149 C137 165 160 165 178 148" class="hose"/>
-    <path d="M105 72 C84 43 101 17 125 32 C147 45 165 20 186 40" fill="none" stroke="#191919" stroke-width="9" stroke-linecap="round"/>
-    <path d="M193 93 L228 78 L244 108 L211 123 Z" fill="#8fd3ff" stroke="#191919" stroke-width="6"/>
-    <path d="M216 98 L229 92" class="hose"/>
-  </svg>
-</div>''', unsafe_allow_html=True)
+components.html('''
+<style>
+  * { box-sizing:border-box; }
+  @import url('https://fonts.googleapis.com/css2?family=Bangers&family=Fredoka:wght@400;500;600;700&family=Patrick+Hand&display=swap');
+  body { margin:0; background:transparent; font-family:'Fredoka','Comic Sans MS',cursive; }
+  #scene { position:relative; overflow:hidden; height:360px; border:2px solid #191919; border-radius:28px; background:#fff8e8; box-shadow:7px 8px 0 #191919; cursor:crosshair; }
+  #scene:before,#scene:after { content:""; position:absolute; border-radius:50%; opacity:.75; animation:drift 8s ease-in-out infinite; }
+  #scene:before { width:120px; height:120px; background:#ffcf56; right:7%; top:12%; }
+  #scene:after { width:76px; height:76px; background:#8fd3ff; left:7%; bottom:10%; animation-delay:-3s; }
+  .copy { position:absolute; z-index:2; left:38px; top:38px; max-width:480px; }
+  .kicker { font-size:12px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#555; }
+  h2 { font-family:'Bangers','Fredoka','Comic Sans MS',cursive; font-size:47px; line-height:1.02; letter-spacing:1px; margin:10px 0 12px; color:#151515; }
+  p { color:#555; max-width:390px; line-height:1.5; font-size:18px; font-family:'Patrick Hand','Comic Sans MS',cursive; }
+  #bot { position:absolute; z-index:3; right:8%; bottom:8px; width:290px; transform-origin:50% 100%; transition:transform .18s cubic-bezier(.2,.8,.2,1); animation:bob 4.5s ease-in-out infinite; }
+  #arrow-mascot { position:absolute; z-index:3; right:15%; bottom:66px; width:128px; height:128px; display:flex; align-items:center; justify-content:center; border:8px solid #191919; border-radius:38px; background:#8fd3ff; color:#191919; font:700 76px 'Fredoka','Comic Sans MS',cursive; box-shadow:8px 9px 0 #191919; transform-origin:50% 100%; transition:transform .18s cubic-bezier(.2,.8,.2,1); animation:bob 4.5s ease-in-out infinite; }
+  .hose { fill:none; stroke:#191919; stroke-width:7; stroke-linecap:round; stroke-linejoin:round; }
+  .eye-white { fill:#fff; stroke:#191919; stroke-width:5; }
+  .pupil { fill:#191919; transition:transform .12s ease-out; }
+  .brow { fill:none; stroke:#191919; stroke-width:6; stroke-linecap:round; }
+  .cheek { fill:#f28c8c; opacity:.72; }
+  .blink { animation:blink 4s infinite; transform-origin:center; }
+  .spark { position:absolute; z-index:4; width:20px; height:20px; animation:spinfloat 5s ease-in-out infinite; }
+  .spark:before,.spark:after { content:""; position:absolute; background:#191919; border-radius:5px; }
+  .spark:before { width:4px; height:20px; left:8px; top:0; } .spark:after { width:20px; height:4px; left:0; top:8px; }
+  .spark-one { right:35%; top:13%; } .spark-two { right:4%; bottom:17%; animation-delay:-2s; }
+  @keyframes bob { 0%,100% { transform:translateX(0) translateY(0) rotate(-1deg); } 50% { transform:translateX(0) translateY(-13px) rotate(2deg); } }
+  @keyframes drift { 0%,100% { transform:translate(0,0) rotate(0deg); } 50% { transform:translate(18px,-12px) rotate(18deg); } }
+  @keyframes spinfloat { 0%,100% { transform:translateY(0) rotate(0deg); } 50% { transform:translateY(-10px) rotate(20deg); } }
+  @keyframes blink { 0%,44%,48%,100% { transform:scaleY(1); } 46% { transform:scaleY(.1); } }
+</style>
+<div id="scene">
+  <div class="copy"><div class="kicker">A tiny business analyst</div><h2>Find the leak<br>fix the business</h2><p>ProfitPilot looks at your numbers and turns them into one clear next move</p></div>
+  <div class="spark spark-one"></div><div class="spark spark-two"></div>
+  <div id="arrow-mascot" aria-label="ProfitPilot arrow mascot">↗</div>
+</div>
+<script>
+  const scene=document.getElementById('scene'); const bot=document.getElementById('arrow-mascot');
+  scene.addEventListener('pointermove',(event)=>{
+    const box=scene.getBoundingClientRect(); const x=(event.clientX-box.left)/box.width*2-1; const y=(event.clientY-box.top)/box.height*2-1;
+    bot.style.transform=`translate(${x*18}px,${y*4}px) rotate(${x*2}deg)`;
+  });
+  scene.addEventListener('pointerleave',()=>{ bot.style.transform='translate(0,0) rotate(-1deg)'; });
+</script>
+''', height=380, scrolling=False)
 
 st.markdown('<div class="story">A small business can have sales and still lose money ProfitPilot reads the numbers finds the leak and suggests the next move</div>', unsafe_allow_html=True)
 st.markdown('<div class="chat-heading">Choose a move and get advice from your numbers</div>', unsafe_allow_html=True)
@@ -334,7 +358,7 @@ with st.expander("Ask a custom question", expanded=False):
 
 # ---------- Dashboard ----------
 with st.expander("Open business dashboard", expanded=False):
-    st.subheader("📊 Business snapshot")
+    st.subheader("Business snapshot")
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Revenue", f"${revenue:,.2f}")
     c2.metric("Gross profit", f"${gross_profit:,.2f}")
@@ -342,7 +366,7 @@ with st.expander("Open business dashboard", expanded=False):
     c4.metric("Net profit", f"${net_profit:,.2f}")
     c5.metric("Gross margin", f"{margin:.1f}%")
     
-    st.subheader("🧠 What the data is telling us")
+    st.subheader("What the data is telling us")
     for kind, text in insights:
         css_class = "insight loss" if kind == "loss" else "insight risk" if kind == "risk" else "insight"
         st.markdown(f"<div class='{css_class}'>{html.escape(text)}</div>", unsafe_allow_html=True)
@@ -350,23 +374,24 @@ with st.expander("Open business dashboard", expanded=False):
     left, right = st.columns(2)
     with left:
         fig = px.line(daily, x="date", y=["revenue", "net_profit"], markers=True, title="Revenue vs. net profit", color_discrete_sequence=["#f28c8c", "#6bb8ff"])
-        fig.update_layout(legend_title_text="Metric", margin=dict(l=10, r=10, t=50, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,.55)", font_family="Trebuchet MS")
+        fig.update_layout(legend_title_text="Metric", margin=dict(l=10, r=10, t=50, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,.55)", font_family="Fredoka")
         st.plotly_chart(fig, width="stretch")
     with right:
         chart = products.sort_values("net_profit", ascending=True)
         fig2 = px.bar(chart, x="net_profit", y="product", orientation="h", title="Net profit by product", labels={"net_profit": "Net profit", "product": "Product"}, color_discrete_sequence=["#ffcf56"])
-        fig2.update_layout(margin=dict(l=10, r=10, t=50, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,.55)", font_family="Trebuchet MS")
+        fig2.update_layout(margin=dict(l=10, r=10, t=50, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,.55)", font_family="Fredoka")
         st.plotly_chart(fig2, width="stretch")
     
-    st.subheader("🧰 Product scorecard")
+    st.subheader("Product scorecard")
     display = products.copy()
     for column in ["revenue", "cost", "gross_profit", "operating_expense", "net_profit"]:
         display[column] = display[column].map(lambda value: f"${value:,.2f}")
     display["margin_pct"] = display["margin_pct"].map(lambda value: f"{value:.1f}%")
     display["net_margin_pct"] = display["net_margin_pct"].map(lambda value: f"{value:.1f}%")
-    st.dataframe(display, width="stretch", hide_index=True)
+    scorecard_html = display.to_html(index=False, escape=True, classes="scorecard-table", border=0)
+    st.markdown(f'<div class="scorecard-wrap">{scorecard_html}</div>', unsafe_allow_html=True)
     
-    st.subheader("🛹 Recommended action plan")
+    st.subheader("Recommended action plan")
     for step in build_action_plan(products, net_profit, insights):
         st.markdown(step)
     
