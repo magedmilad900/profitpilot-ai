@@ -38,6 +38,24 @@ st.markdown(
 .insight { border-left:4px solid #111; background:#f5f5f5; padding:.75rem 1rem; border-radius:8px; margin:.45rem 0; }
 .risk, .loss { border-left-color:#555; background:#eeeeee; }
 .source { font-size:.78rem; color:#475569; }
+.stApp, [data-testid="stAppViewContainer"] { background:#fff8e8; color:#191919; }
+[data-testid="stAppViewContainer"]:before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.25; background-image:radial-gradient(#f28c8c 1.5px, transparent 1.5px), radial-gradient(#8fd3ff 1.5px, transparent 1.5px); background-size:46px 46px, 73px 73px; background-position:0 0, 22px 18px; animation:paperdrift 18s linear infinite; }
+[data-testid="stSidebar"] { background:#ffe9c7; border-right:2px solid #191919; box-shadow:5px 0 0 #191919; }
+[data-testid="stSidebar"] .block-container { background:transparent; }
+[data-testid="stSidebar"] .side-link { border:2px solid transparent; transition:transform .2s ease, background .2s ease; }
+[data-testid="stSidebar"] .side-link:hover { background:#ffcf56; border-color:#191919; transform:rotate(-1deg) translateX(3px); }
+[data-testid="stSidebar"] [data-testid="stFileUploader"] { border:2px dashed #191919; border-radius:16px; background:#fff; padding:.35rem; }
+.stButton > button { border:2px solid #191919; border-radius:14px; background:#8fd3ff; color:#191919; font-weight:700; box-shadow:4px 5px 0 #191919; transition:transform .16s ease, box-shadow .16s ease; }
+.stButton > button:hover { background:#ffcf56; color:#191919; transform:translate(-2px,-2px) rotate(-1deg); box-shadow:6px 7px 0 #191919; }
+.stButton > button:active { transform:translate(2px,2px); box-shadow:2px 2px 0 #191919; }
+[data-testid="stExpander"] { border:2px solid #191919; border-radius:16px; background:#fff; box-shadow:4px 5px 0 #191919; overflow:hidden; }
+[data-testid="stExpander"] summary { background:#ffefcf; font-weight:700; }
+[data-testid="stMetric"] { border:2px solid #191919; border-radius:16px; background:#fff; padding:.8rem; box-shadow:3px 4px 0 #191919; }
+[data-testid="stDataFrame"] { border:2px solid #191919; border-radius:16px; overflow:hidden; box-shadow:4px 5px 0 #191919; background:#fff; }
+[data-testid="stChatMessage"] { border:2px solid #191919; background:#fffef8; box-shadow:3px 4px 0 #191919; }
+.stDownloadButton > button { border:2px solid #191919; border-radius:14px; background:#f28c8c; color:#191919; font-weight:700; box-shadow:4px 5px 0 #191919; }
+.stDownloadButton > button:hover { background:#ffcf56; color:#191919; }
+@keyframes paperdrift { 0% { transform:translate(0,0); } 50% { transform:translate(18px,10px); } 100% { transform:translate(0,0); } }
 .advice-stage { position:relative; overflow:hidden; min-height:360px; border:2px solid #191919; border-radius:28px; background:#fff8e8; padding:2.2rem 2.4rem; box-shadow:7px 8px 0 #191919; }
 .advice-stage:before, .advice-stage:after { content:""; position:absolute; border-radius:50%; opacity:.75; animation:drift 8s ease-in-out infinite; }
 .advice-stage:before { width:120px; height:120px; background:#ffcf56; right:7%; top:12%; }
@@ -305,7 +323,7 @@ with st.expander("Ask a custom question", expanded=False):
 
 # ---------- Dashboard ----------
 with st.expander("Open business dashboard", expanded=False):
-    st.subheader("Business snapshot")
+    st.subheader("📊 Business snapshot")
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Revenue", f"${revenue:,.2f}")
     c2.metric("Gross profit", f"${gross_profit:,.2f}")
@@ -313,23 +331,23 @@ with st.expander("Open business dashboard", expanded=False):
     c4.metric("Net profit", f"${net_profit:,.2f}")
     c5.metric("Gross margin", f"{margin:.1f}%")
     
-    st.subheader("What the data is telling us")
+    st.subheader("🧠 What the data is telling us")
     for kind, text in insights:
         css_class = "insight loss" if kind == "loss" else "insight risk" if kind == "risk" else "insight"
         st.markdown(f"<div class='{css_class}'>{html.escape(text)}</div>", unsafe_allow_html=True)
     
     left, right = st.columns(2)
     with left:
-        fig = px.line(daily, x="date", y=["revenue", "net_profit"], markers=True, title="Revenue vs. net profit", color_discrete_sequence=["#111111", "#777777"])
-        fig.update_layout(legend_title_text="Metric", margin=dict(l=10, r=10, t=50, b=10))
+        fig = px.line(daily, x="date", y=["revenue", "net_profit"], markers=True, title="Revenue vs. net profit", color_discrete_sequence=["#f28c8c", "#6bb8ff"])
+        fig.update_layout(legend_title_text="Metric", margin=dict(l=10, r=10, t=50, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,.55)", font_family="Trebuchet MS")
         st.plotly_chart(fig, width="stretch")
     with right:
         chart = products.sort_values("net_profit", ascending=True)
-        fig2 = px.bar(chart, x="net_profit", y="product", orientation="h", title="Net profit by product", labels={"net_profit": "Net profit", "product": "Product"}, color_discrete_sequence=["#111111"])
-        fig2.update_layout(margin=dict(l=10, r=10, t=50, b=10))
+        fig2 = px.bar(chart, x="net_profit", y="product", orientation="h", title="Net profit by product", labels={"net_profit": "Net profit", "product": "Product"}, color_discrete_sequence=["#ffcf56"])
+        fig2.update_layout(margin=dict(l=10, r=10, t=50, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,.55)", font_family="Trebuchet MS")
         st.plotly_chart(fig2, width="stretch")
     
-    st.subheader("Product scorecard")
+    st.subheader("🧰 Product scorecard")
     display = products.copy()
     for column in ["revenue", "cost", "gross_profit", "operating_expense", "net_profit"]:
         display[column] = display[column].map(lambda value: f"${value:,.2f}")
@@ -337,7 +355,7 @@ with st.expander("Open business dashboard", expanded=False):
     display["net_margin_pct"] = display["net_margin_pct"].map(lambda value: f"{value:.1f}%")
     st.dataframe(display, width="stretch", hide_index=True)
     
-    st.subheader("Recommended action plan")
+    st.subheader("🛹 Recommended action plan")
     for step in build_action_plan(products, net_profit, insights):
         st.markdown(step)
     
