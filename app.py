@@ -3,6 +3,7 @@ Run with: streamlit run app.py --server.port 3000 --server.address 0.0.0.0
 """
 from __future__ import annotations
 
+import html
 import io
 import re
 from datetime import datetime
@@ -162,6 +163,23 @@ def model_context(research_context: str) -> str:
     return prompt
 
 
+def provider_error_hint(provider: str, status_code: Any, key: str) -> str:
+    if status_code in (401, 403):
+        hint = (f"{provider} rejected the API key (HTTP {status_code}). "
+                "Check the selected provider, paste an active key without spaces, "
+                "and verify the model and API base URL in Settings.")
+        if provider == "OpenAI / ChatGPT":
+            hint += " A ChatGPT password or subscription is not an OpenAI API key; create the key from the OpenAI API platform."
+        if key.lower().startswith("key_"):
+            hint += " This key format does not look like a typical OpenAI key, so it may belong to another service."
+        return hint
+    if status_code == 404:
+        return f"{provider} returned HTTP 404. Check the model name and API base URL; do not include /chat/completions in the base URL."
+    if status_code == 429:
+        return f"{provider} returned HTTP 429. The provider is rate-limiting this request; wait briefly or check the provider account limits."
+    return f"{provider} returned HTTP {status_code}. Check the model, API base URL, and provider documentation."
+
+
 def ask_model(messages: list[dict[str, str]], research_context: str = "") -> str:
     key = st.session_state.api_key.strip()
     if not key:
@@ -174,7 +192,9 @@ def ask_model(messages: list[dict[str, str]], research_context: str = "") -> str
     try:
         if kind == "openai":
             payload_messages = [{"role": "system", "content": model_context(research_context)}] + messages[-12:]
-            response = requests.post(f"{base_url}/chat/completions", headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, json={"model": model, "messages": payload_messages, "temperature": 0.4, "max_tokens": 1400}, timeout=60)
+            response = requests.post(f"{base_url}/chat/completions", headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, json={"model": model, "messages": payload_messages, "temperature": 0.4, "max_completion_tokens": 1400}, timeout=60)
+            if response.status_code == 400:
+                response = requests.post(f"{base_url}/chat/completions", headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, json={"model": model, "messages": payload_messages, "temperature": 0.4, "max_tokens": 1400}, timeout=60)
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
         if kind == "anthropic":
@@ -189,14 +209,20 @@ def ask_model(messages: list[dict[str, str]], research_context: str = "") -> str
         return "Choose a supported provider in Settings."
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else "unknown"
-        if status_code in (401, 403):
-            return (f"{provider} rejected the API key (HTTP {status_code}). "
-                    "Open Settings and check that you selected the matching provider, "
-                    "pasted an active API key without spaces, and entered the correct model. "
-                    "A ChatGPT subscription password is not an OpenAI API key; OpenAI keys must be created from the API platform.")
-        return f"{provider} returned an error (HTTP {status_code}). Check the model and API base URL in Settings."
+        return provider_error_hint(provider, status_code, key)
     except Exception as exc:
         return f"I couldn’t reach {provider} right now. Check Settings and your connection.\n\nTechnical note: {exc}"
+
+
+def test_provider_connection() -> tuple[bool, str]:
+    if not st.session_state.api_key.strip():
+        return False, "Add an API key first."
+    if not st.session_state.model.strip():
+        return False, "Add a model name first."
+    result = ask_model([{"role": "user", "content": "Reply with exactly: OK"}])
+    if result.startswith(("OpenAI / ChatGPT ", "Anthropic / Claude ", "Google / Gemini ", "OpenAI-compatible / Custom ", "I couldn’t reach")):
+        return False, result
+    return True, f"Connection works. {st.session_state.provider} replied successfully."
 
 
 def local_reply(question: str, has_file: bool) -> str:
@@ -213,9 +239,10 @@ def render_message(message: dict[str, Any]) -> None:
     initials = "PF" if role == "assistant" else "You"
     avatar_class = "ai" if role == "assistant" else "user"
     name = "ProfitPilot" if role == "assistant" else "You"
-    st.markdown(f"<div class='message'><div class='avatar {avatar_class}'>{initials}</div><div class='message-body'><div class='message-meta'>{name}</div>{message['content']}</div></div>", unsafe_allow_html=True)
+    safe_content = html.escape(str(message["content"])).replace("\n", "<br>")
+    st.markdown(f"<div class='message'><div class='avatar {avatar_class}'>{initials}</div><div class='message-body'><div class='message-meta'>{name}</div>{safe_content}</div></div>", unsafe_allow_html=True)
     if message.get("sources"):
-        links = " · ".join(f"[{source['title']}]({source['url']})" for source in message["sources"] if source.get("url"))
+        links = " · ".join(f"<a href='{html.escape(source['url'], quote=True)}' target='_blank' rel='noreferrer'>{html.escape(source['title'])}</a>" for source in message["sources"] if source.get("url"))
         st.markdown(f"<div class='context'><b>Sources</b><br>{links}</div>", unsafe_allow_html=True)
 
 
@@ -265,7 +292,11 @@ with st.sidebar:
         st.session_state.base_url = st.text_input("API base URL", value=st.session_state.base_url, help="Edit this for OpenRouter, Together, Groq, DeepSeek, Ollama, or another compatible endpoint.")
         st.session_state.tavily_key = st.text_input("Tavily search key (optional)", type="password", value=st.session_state.tavily_key)
         if st.session_state.api_key:
-            st.success(f"{provider} connected")
+            st.caption("Key entered. Test it before starting a chat.")
+            if st.button("Test connection", use_container_width=True):
+                with st.spinner("Testing provider…"):
+                    ok, message = test_provider_connection()
+                (st.success if ok else st.error)(message)
         else:
             st.info("Add an API key to start chatting.")
 
