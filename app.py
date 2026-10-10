@@ -1,3 +1,6 @@
+"""ProfitPilot AI — a clean, provider-agnostic Streamlit chat workspace.
+Run with: streamlit run app.py --server.port 3000 --server.address 0.0.0.0
+"""
 from __future__ import annotations
 
 import io
@@ -185,8 +188,13 @@ def ask_model(messages: list[dict[str, str]], research_context: str = "") -> str
             return response.json()["candidates"][0]["content"]["parts"][0]["text"]
         return "Choose a supported provider in Settings."
     except requests.HTTPError as exc:
-        detail = exc.response.text[:500] if exc.response is not None else str(exc)
-        return f"I couldn’t reach {provider}. Check the API key, model, and endpoint in Settings.\n\nProvider response: {detail}"
+        status_code = exc.response.status_code if exc.response is not None else "unknown"
+        if status_code in (401, 403):
+            return (f"{provider} rejected the API key (HTTP {status_code}). "
+                    "Open Settings and check that you selected the matching provider, "
+                    "pasted an active API key without spaces, and entered the correct model. "
+                    "A ChatGPT subscription password is not an OpenAI API key; OpenAI keys must be created from the API platform.")
+        return f"{provider} returned an error (HTTP {status_code}). Check the model and API base URL in Settings."
     except Exception as exc:
         return f"I couldn’t reach {provider} right now. Check Settings and your connection.\n\nTechnical note: {exc}"
 
