@@ -1,215 +1,297 @@
+"""
+ProfitPilot - an AI business advisor for small business owners.
+
+Losing money?   It finds out why and gives a step-by-step fix.
+Making money?   It finds the fastest ways to grow profit.
+
+Run:  streamlit run app.py
+"""
 import json
-import requests
+import uuid
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
-from datetime import datetime
+from google import genai
+from google.genai import types
 
-st.set_page_config(page_title="ProfitPilot", page_icon="💬", layout="wide")
+# ───────────────────────── 1. Config ─────────────────────────
+APP_NAME = "ProfitPilot"
+STORE = Path("chats.json")
+MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"]
+FILE_TYPES = ["csv", "tsv", "xlsx", "txt", "md", "json", "pdf", "png", "jpg", "jpeg"]
 
+SYSTEM_PROMPT = """You are ProfitPilot, a friendly business advisor for small business owners.
+Talk in simple, warm English like a smart friend who knows business. Short sentences. No jargon
+(or explain it in one line). If the user writes in another language, answer in that language.
+
+Your job has two modes. Work out which one applies from the user's numbers:
+
+1) LOSING MONEY or low profit -> be a business doctor:
+   - Check revenue, cost of goods, gross margin, fixed costs, discounts, returns, and break-even.
+   - Find the real cause (pricing too low, costs too high, weak products, slow sales, too many discounts...).
+   - Give a ranked fix list: what to do first, how, and the rough money impact.
+
+2) MAKING PROFIT -> be a growth coach:
+   - Find the best products, customers and channels, and what is holding profit back.
+   - Give practical levers: pricing, upsells and bundles, repeat customers, cutting weak items,
+     better marketing spend, cost savings.
+
+Rules:
+- If you lack numbers, ask 2-4 simple questions first (revenue, costs, best sellers, goals).
+- Use real figures from attached files. Show your math briefly. Never invent data.
+- Use tables for comparisons. End with "Next steps" (max 3 clear actions).
+- Use web search for market facts, competitor prices and trends, and name your sources.
+- Be honest when unsure. You are an advisor, not a lawyer or an accountant."""
+
+STARTERS = [
+    ("I'm losing money", "My business is losing money. Ask me a few simple questions, then help me find out why and how to fix it."),
+    ("I'm making a profit", "My business is making a profit. Help me find the fastest ways to grow it."),
+    ("Analyze my sales file", "I'll attach my sales file. Tell me what is working, what is not, and what to do next."),
+    ("Research my market", "Research my market and my competitors, and tell me where I can win."),
+]
+
+st.set_page_config(page_title=APP_NAME, page_icon=":material/trending_up:", layout="centered")
+
+# ───────────────────────── 2. Styling ─────────────────────────
 st.markdown("""
 <style>
-.stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {background:#fff !important;}
-[data-testid="stSidebar"], [data-testid="stSidebar"] > div {background:#f7f7f8 !important;}
-[data-testid="stSidebar"] {border-right:1px solid #ececef;}
-.block-container {max-width:900px; padding-top:1.4rem; padding-bottom:6rem;}
-.brand {font-size:1.25rem;font-weight:700;letter-spacing:-.5px;padding:.5rem 0 1rem;}
-.brand span {display:inline-flex;background:#202123;color:white;border-radius:9px;width:31px;height:31px;align-items:center;justify-content:center;margin-right:8px;}
-.welcome {text-align:center;padding:3rem .5rem 1.5rem;}
-.welcome h1 {font-size:2.1rem;letter-spacing:-1px;font-weight:650;}
-.welcome p {color:#777;font-size:1rem;}
-.stButton>button {border-radius:14px;background:white;border:1px solid #e5e5e8;color:#202123;min-height:2.7rem;}
-.stButton>button:hover {background:#f8f8f9;border-color:#c7c7cd;}
-div[data-testid="stChatInput"] {border-radius:18px!important;border:1px solid #dedee3!important;box-shadow:0 4px 20px #00000008;}
-div[data-testid="stChatMessage"] {padding:.7rem 0;border:0;}
-div[data-testid="stMetric"] {border:1px solid #eee;border-radius:12px;padding:.8rem;background:#fafafa;}
+#MainMenu, footer, header [data-testid="stToolbar"], [data-testid="stDecoration"]{display:none}
+.stApp{background:#fff}
+section[data-testid="stSidebar"]{background:#f7f7f8;border-right:1px solid #e5e5e8}
+[data-testid="stChatMessageAvatarUser"],[data-testid="stChatMessageAvatarAssistant"]{display:none}
+[data-testid="stChatMessage"]{background:none;padding:.4rem 0}
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]){
+  flex-direction:row-reverse;background:#f1f1f3;border-radius:20px;padding:.5rem 1.1rem;width:fit-content;max-width:85%;margin-left:auto}
+.stButton>button{border-radius:10px;border:1px solid #e5e5e8;background:#fff;color:#1a1a1c}
+.stButton>button:hover{background:#ececee;border-color:#e5e5e8;color:#1a1a1c}
+section[data-testid="stSidebar"] .stButton>button{border:0;background:transparent;text-align:left;justify-content:flex-start}
+section[data-testid="stSidebar"] .stButton>button:hover{background:#ececee}
+.hero{text-align:center;padding:12vh 0 1.5rem}
+.hero h1{font-size:2rem;font-weight:600;letter-spacing:-.02em;margin-bottom:.2rem}
+.hero p{color:#76767d}
+.src a{font-size:.78rem;color:#76767d;border:1px solid #e5e5e8;border-radius:999px;padding:2px 10px;margin-right:6px;text-decoration:none}
 </style>
 """, unsafe_allow_html=True)
 
-st.sidebar.markdown('<div class="brand"><span>↗</span>ProfitPilot</div>', unsafe_allow_html=True)
-
-REQUIRED = {"date", "product", "units", "unit_price", "unit_cost"}
-
-def demo_data():
-    return pd.DataFrame([
-        ["2026-09-01","Wireless Mouse",18,18,8], ["2026-09-02","Desk Lamp",9,32,21],
-        ["2026-09-03","Notebook Set",30,7,2.5], ["2026-09-04","Wireless Mouse",12,18,8],
-        ["2026-09-05","Desk Lamp",5,32,21], ["2026-09-06","Water Bottle",22,14,6],
-        ["2026-09-07","Notebook Set",35,7,2.5], ["2026-09-08","Desk Lamp",4,32,21],
-        ["2026-09-09","Water Bottle",17,14,6], ["2026-09-10","Wireless Mouse",20,18,8],
-        ["2026-09-11","Desk Lamp",3,32,21], ["2026-09-12","Notebook Set",27,7,2.5],
-        ["2026-09-13","Water Bottle",25,14,6], ["2026-09-14","Desk Lamp",6,32,21],
-        ["2026-09-15","Wireless Mouse",16,18,8], ["2026-09-16","Notebook Set",32,7,2.5],
-        ["2026-09-17","Water Bottle",19,14,6], ["2026-09-18","Desk Lamp",2,32,21],
-        ["2026-09-19","Wireless Mouse",24,18,8], ["2026-09-20","Notebook Set",29,7,2.5],
-        ["2026-09-21","Water Bottle",21,14,6], ["2026-09-22","Desk Lamp",5,32,21],
-        ["2026-09-23","Wireless Mouse",14,18,8], ["2026-09-24","Notebook Set",34,7,2.5],
-        ["2026-09-25","Water Bottle",18,14,6],
-    ], columns=["date","product","units","unit_price","unit_cost"])
-
-def prepare_data(frame):
-    frame = frame.copy()
-    frame.columns = [str(c).strip().lower().replace(" ", "_") for c in frame.columns]
-    missing = REQUIRED - set(frame.columns)
-    if missing:
-        raise ValueError("Missing columns: " + ", ".join(sorted(missing)))
-    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
-    for col in ["units", "unit_price", "unit_cost"]:
-        frame[col] = pd.to_numeric(frame[col], errors="coerce")
-    frame = frame.dropna(subset=["date", "product", "units", "unit_price", "unit_cost"])
-    frame = frame[(frame["units"] >= 0) & (frame["unit_price"] >= 0) & (frame["unit_cost"] >= 0)]
-    frame["revenue"] = frame["units"] * frame["unit_price"]
-    frame["cost"] = frame["units"] * frame["unit_cost"]
-    frame["profit"] = frame["revenue"] - frame["cost"]
-    frame["margin_pct"] = (frame["profit"] / frame["revenue"].replace(0, pd.NA) * 100).fillna(0)
-    return frame
-
-def summarize(frame):
-    if frame.empty:
-        return {"revenue":0,"profit":0,"margin":0,"units":0,"products":pd.DataFrame(),"daily":pd.DataFrame()}
-    products = frame.groupby("product", as_index=False).agg(
-        units=("units","sum"), revenue=("revenue","sum"), cost=("cost","sum"), profit=("profit","sum"))
-    products["margin_pct"] = (products["profit"] / products["revenue"].replace(0, pd.NA) * 100).fillna(0)
-    daily = frame.groupby("date", as_index=False).agg(revenue=("revenue","sum"), profit=("profit","sum"))
-    revenue, profit = float(frame["revenue"].sum()), float(frame["profit"].sum())
-    return {"revenue":revenue,"profit":profit,"margin":profit/revenue*100 if revenue else 0,
-            "units":float(frame["units"].sum()),"products":products.sort_values("profit",ascending=False),"daily":daily}
-
-def basic_answer(question, data, frame):
-    products = data["products"]
-    rev, prof, margin = data["revenue"], data["profit"], data["margin"]
-    q = question.lower()
-    if frame.empty:
-        return "I can chat with you, but I need sales data to calculate real business numbers. Upload a CSV from the left, or turn on demo data to try me."
-    if any(x in q for x in ["hello", "hi", "hey", "good morning", "how are you"]):
-        return "Hey! 😊 I'm doing well, thanks. What would you like to figure out about your business today?"
-    if any(x in q for x in ["profit", "revenue", "sales", "margin", "ربح", "مبيعات"]):
-        return (f"Here’s the quick picture: your revenue is **{rev:,.2f}**, gross profit is **{prof:,.2f}**, "
-                f"and gross margin is **{margin:.1f}%**. Gross profit does not include fixed overhead or taxes unless they’re included in your unit costs.")
-    if any(x in q for x in ["best", "top", "product", "most profitable", "أفضل", "منتج"]):
-        best = products.iloc[0]
-        worst = products.sort_values("profit").iloc[0]
-        return (f"Your strongest product by total gross profit is **{best['product']}** "
-                f"({best['profit']:,.2f} profit, {best['margin_pct']:.1f}% margin). "
-                f"**{worst['product']}** is currently the lowest by total gross profit. I’d check demand and costs before making a decision.")
-    if any(x in q for x in ["grow", "growth", "marketing", "increase", "improve", "نمو", "تسويق"]):
-        return ("Here’s a practical place to start:\n\n1. Pick one product with a healthy margin.\n"
-                "2. Run a small marketing test for one week.\n3. Track the extra profit—not just clicks or sales.\n\n"
-                "I don’t have your ad spend or customer data yet, so treat this as a test, not a guarantee.")
-    best = products.iloc[0]
-    return (f"Let’s look at this together. Your revenue is **{rev:,.2f}**, gross profit is **{prof:,.2f}**, "
-            f"and gross margin is **{margin:.1f}%**. **{best['product']}** currently contributes the most gross profit. "
-            "Ask me about a product, your margins, sales trends, or ways to grow.")
-
-def ai_answer(api_key, messages, data):
-    p = data["products"]
-    summary = {
-        "total_revenue": round(data["revenue"],2), "gross_profit":round(data["profit"],2),
-        "gross_margin_percent":round(data["margin"],2), "units_sold":round(data["units"],2),
-        "product_performance":p.round(2).to_dict(orient="records") if not p.empty else [],
-        "daily_totals":data["daily"].tail(14).round(2).to_dict(orient="records") if not data["daily"].empty else []
-    }
-    instruction = (
-        "You are ProfitPilot, a friendly, practical small-business advisor. Speak in simple, natural English. "
-        "Be warm and human, not robotic. Answer the user's question directly. Use the supplied sales data for calculations; "
-        "never invent facts. Give clear next steps and mention uncertainty. Keep answers concise unless asked for detail. "
-        "If the user writes Arabic, answer in Arabic. Sales summary: " + json.dumps(summary, default=str)
-    )
-    contents = [{"role":"user","parts":[{"text":instruction}]}]
-    for m in messages[-12:]:
-        contents.append({"role":"model" if m["role"]=="assistant" else "user",
-                         "parts":[{"text":m["content"]}]})
-    endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+# ───────────────────────── 3. Storage ─────────────────────────
+def load_chats() -> dict:
     try:
-        res = requests.post(endpoint, params={"key":api_key},
-                            json={"contents":contents,"generationConfig":{"temperature":0.65}},
-                            timeout=35)
-        if res.ok:
-            return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return basic_answer(messages[-1]["content"], data, pd.DataFrame() if p.empty else pd.DataFrame({"x":[1]})) if False else f"Gemini returned an error ({res.status_code}). Check your API key and try again."
+        return json.loads(STORE.read_text("utf-8"))
     except Exception:
-        return "I couldn't connect to Gemini right now. Please check your connection and try again."
+        return {}
 
-if "conversations" not in st.session_state:
-    st.session_state.conversations = [{"id":1,"title":"New chat","messages":[]}]
-    st.session_state.active_id = 1
-    st.session_state.counter = 2
 
-with st.sidebar:
-    if st.button("＋  New chat", use_container_width=True):
-        st.session_state.conversations.insert(0, {"id":st.session_state.counter,"title":"New chat","messages":[]})
-        st.session_state.active_id = st.session_state.counter
-        st.session_state.counter += 1
-        st.rerun()
-    st.markdown("---")
-    st.caption("YOUR CHATS")
-    for conversation in st.session_state.conversations:
-        if st.button("💬  " + conversation["title"][:25], key=f"open_{conversation['id']}", use_container_width=True):
-            st.session_state.active_id = conversation["id"]
+def save_chats() -> None:
+    STORE.write_text(json.dumps(st.session_state.chats, ensure_ascii=False), "utf-8")
+
+
+def init_state() -> None:
+    st.session_state.setdefault("chats", load_chats())
+    st.session_state.setdefault("cid", None)
+    st.session_state.setdefault("blobs", {})  # PDFs / images stay in memory only
+
+
+def current_chat() -> dict | None:
+    return st.session_state.chats.get(st.session_state.cid)
+
+
+# ───────────────────────── 4. File analysis ─────────────────────────
+def to_number(series: pd.Series) -> pd.Series:
+    cleaned = series.astype(str).str.replace(r"[^0-9.\-]", "", regex=True)
+    return pd.to_numeric(cleaned, errors="coerce")
+
+
+def snapshot(df: pd.DataFrame) -> str:
+    """Quick, reliable numbers computed with pandas so the AI does not have to guess."""
+    cols = {c.lower(): c for c in df.columns}
+    find = lambda keys: next((cols[c] for c in cols if any(k in c for k in keys)), None)
+    rev, cost, prof = find(["revenue", "sales", "amount", "total"]), find(["cogs", "cost", "expense"]), find(["profit"])
+    item, date = find(["product", "item", "name", "category"]), find(["date", "month", "day"])
+
+    out = [f"Rows: {len(df)} | Columns: {', '.join(map(str, df.columns))}",
+           "(Columns below were auto-detected - double-check they are right.)"]
+    d = df.copy()
+    for c in (rev, cost, prof):
+        if c:
+            d[c] = to_number(d[c])
+    profit = d[prof] if prof else (d[rev] - d[cost] if rev and cost else None)
+    if rev:
+        out.append(f"Total revenue ({rev}): {d[rev].sum():,.2f}")
+    if cost:
+        out.append(f"Total cost ({cost}): {d[cost].sum():,.2f}")
+    if profit is not None:
+        total, revenue = profit.sum(), d[rev].sum() if rev else 0
+        out.append(f"Total profit: {total:,.2f}" + (f" | Margin: {total / revenue:.1%}" if revenue else ""))
+        out.append(f"Loss-making rows: {(profit < 0).sum()} of {len(d)}")
+        if item:
+            by = profit.groupby(d[item]).sum().sort_values()
+            out.append(f"Top 5 by profit ({item}):\n{by.tail(5)[::-1].round(2).to_string()}")
+            out.append(f"Bottom 5 by profit ({item}):\n{by.head(5).round(2).to_string()}")
+        if date:
+            when = pd.to_datetime(d[date], errors="coerce")
+            if when.notna().any():
+                out.append(f"Profit by month:\n{profit.groupby(when.dt.to_period('M')).sum().round(2).to_string()}")
+    return "\n".join(out)
+
+
+def read_upload(f) -> dict:
+    """Turn an uploaded file into {name, text} or {name, mime, id}."""
+    name, ext = f.name, f.name.rsplit(".", 1)[-1].lower()
+    if ext in ("csv", "tsv", "xlsx"):
+        df = pd.read_excel(f) if ext == "xlsx" else pd.read_csv(f, sep=None, engine="python")
+        return {"name": name, "text": snapshot(df) + "\n\nData (first rows):\n" + df.head(400).to_csv(index=False)[:100_000]}
+    if ext in ("txt", "md", "json"):
+        return {"name": name, "text": f.getvalue().decode("utf-8", "ignore")[:100_000]}
+    fid = uuid.uuid4().hex
+    st.session_state.blobs[fid] = f.getvalue()
+    return {"name": name, "id": fid, "mime": "application/pdf" if ext == "pdf" else f"image/{'jpeg' if ext == 'jpg' else ext}"}
+
+
+# ───────────────────────── 5. Gemini ─────────────────────────
+def build_contents(messages: list[dict]) -> list[types.Content]:
+    contents = []
+    for m in messages:
+        parts = []
+        for a in m.get("files", []):
+            if a.get("text"):
+                parts.append(types.Part(text=f"[File: {a['name']}]\n{a['text']}"))
+            elif a.get("id") in st.session_state.blobs:
+                parts.append(types.Part.from_bytes(data=st.session_state.blobs[a["id"]], mime_type=a["mime"]))
+            else:
+                parts.append(types.Part(text=f"[File '{a['name']}' is no longer available. Ask the user to re-attach it if needed.]"))
+        if m["content"]:
+            parts.append(types.Part(text=m["content"]))
+        if parts:
+            contents.append(types.Content(role="user" if m["role"] == "user" else "model", parts=parts))
+    return contents
+
+
+def stream_answer(api_key: str, model: str, web: bool, messages: list[dict], box) -> tuple[str, list[dict]]:
+    client = genai.Client(api_key=api_key)
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT,
+        tools=[types.Tool(google_search=types.GoogleSearch())] if web else None,
+    )
+    text, sources = "", {}
+    for chunk in client.models.generate_content_stream(model=model, contents=build_contents(messages), config=config):
+        text += chunk.text or ""
+        for cand in chunk.candidates or []:
+            meta = cand.grounding_metadata
+            for g in (meta.grounding_chunks or []) if meta else []:
+                if g.web:
+                    sources[g.web.uri] = g.web.title or g.web.uri
+        box.markdown(text + " ▌")
+    box.markdown(text)
+    return text, [{"uri": u, "title": t} for u, t in sources.items()]
+
+
+def show_sources(sources: list[dict]) -> None:
+    if sources:
+        links = "".join(f'<a href="{s["uri"]}" target="_blank">{s["title"][:40]}</a>' for s in sources)
+        st.markdown(f'<div class="src">{links}</div>', unsafe_allow_html=True)
+
+
+# ───────────────────────── 6. Sidebar ─────────────────────────
+def sidebar() -> tuple[str, str, bool]:
+    chats = st.session_state.chats
+    with st.sidebar:
+        st.markdown(f"### {APP_NAME}")
+        if st.button("New chat", icon=":material/add:", use_container_width=True):
+            st.session_state.cid = None
             st.rerun()
-    st.markdown("---")
-    st.caption("BUSINESS DATA")
-    uploaded = st.file_uploader("Upload sales CSV", type=["csv"])
-    use_demo = st.toggle("Use demo data", value=True if not uploaded else False)
-    st.caption("Required columns: date, product, units, unit_price, unit_cost")
-    with st.expander("AI settings"):
-        api_key = st.text_input("Gemini API key (optional)", type="password")
-        st.caption("Keep your API key private. Never add it to GitHub.")
 
-try:
-    if uploaded is not None:
-        sales = prepare_data(pd.read_csv(uploaded))
-        source_name = uploaded.name
-    elif use_demo:
-        sales = prepare_data(demo_data())
-        source_name = "Demo data"
-    else:
-        sales = pd.DataFrame(columns=list(REQUIRED))
-        source_name = "No data loaded"
-except Exception as err:
-    st.error(f"Could not read that CSV: {err}")
-    st.stop()
+        query = st.text_input("Search chats", placeholder="Search chats", label_visibility="collapsed").lower()
+        shown = [(i, c) for i, c in chats.items() if query in c["title"].lower()]
+        shown.sort(key=lambda x: (not x[1].get("pinned"), -x[1]["created"]))
 
-data = summarize(sales)
-active = next((c for c in st.session_state.conversations if c["id"] == st.session_state.active_id), st.session_state.conversations[0])
-
-st.markdown('<div class="welcome"><h1>What’s happening in your business?</h1><p>Your friendly business sidekick for sales, profit, and your next move.</p></div>' if not active["messages"] else "", unsafe_allow_html=True)
-
-if not active["messages"]:
-    cols = st.columns(2)
-    prompts = ["Give me a quick business check-up", "Which product makes the most profit?",
-               "How can I improve my profit margin?", "Suggest 3 practical growth ideas"]
-    for i, item in enumerate(prompts):
-        with cols[i % 2]:
-            if st.button(item, key=f"prompt_{i}", use_container_width=True):
-                st.session_state.pending_prompt = item
+        for i, c in shown:
+            a, b, d = st.columns([6, 1.3, 1.3], gap="small")
+            label = ("● " if i == st.session_state.cid else "") + c["title"]
+            if a.button(label, key=f"o{i}", use_container_width=True):
+                st.session_state.cid = i
+                st.rerun()
+            if b.button("", key=f"p{i}", icon=":material/push_pin:" if c.get("pinned") else ":material/keep:", help="Pin / unpin"):
+                c["pinned"] = not c.get("pinned")
+                save_chats()
+                st.rerun()
+            if d.button("", key=f"d{i}", icon=":material/delete:", help="Delete chat"):
+                chats.pop(i)
+                if st.session_state.cid == i:
+                    st.session_state.cid = None
+                save_chats()
                 st.rerun()
 
-for message in active["messages"]:
-    with st.chat_message(message["role"], avatar="🙂" if message["role"]=="user" else "↗"):
-        st.markdown(message["content"])
+        st.divider()
+        with st.expander("Settings", icon=":material/settings:"):
+            try:
+                key = st.secrets.get("GEMINI_API_KEY", "")
+            except Exception:  # no secrets file
+                key = ""
+            key = key or st.text_input("Gemini API key", type="password", help="Free at aistudio.google.com/apikey")
+            model = st.selectbox("Model", MODELS)
+            web = st.toggle("Search the web", value=True)
+    return key, model, web
 
-question = st.chat_input("Ask anything about your business...")
-if "pending_prompt" in st.session_state:
-    question = st.session_state.pop("pending_prompt")
 
-if question:
-    active["messages"].append({"role":"user","content":question})
-    if active["title"] == "New chat":
-        active["title"] = question[:25]
-    if api_key.strip():
-        answer = ai_answer(api_key.strip(), active["messages"], data)
+# ───────────────────────── 7. Main ─────────────────────────
+def main() -> None:
+    init_state()
+    api_key, model, web = sidebar()
+    chat = current_chat()
+
+    # Past messages
+    if chat:
+        for m in chat["messages"]:
+            with st.chat_message(m["role"]):
+                for a in m.get("files", []):
+                    st.caption(f":material/description: {a['name']}")
+                st.markdown(m["content"])
+                show_sources(m.get("sources", []))
     else:
-        answer = basic_answer(question, data, sales)
-    active["messages"].append({"role":"assistant","content":answer})
+        st.markdown('<div class="hero"><h1>How is your business doing?</h1>'
+                    '<p>Tell me your numbers. I will find where money leaks, or where it can grow.</p></div>',
+                    unsafe_allow_html=True)
+        cols = st.columns(2)
+        for n, (title, prompt) in enumerate(STARTERS):
+            if cols[n % 2].button(f"**{title}**\n\n{prompt}", key=f"s{n}", use_container_width=True):
+                st.session_state.queued = prompt
+
+    # New input
+    entry = st.chat_input("Message ProfitPilot", accept_file="multiple", file_type=FILE_TYPES)
+    text, uploads = (entry.text, entry.files) if entry else (st.session_state.pop("queued", ""), [])
+    if not (text or uploads):
+        return
+    if not api_key:
+        st.warning("Add your Gemini API key in the sidebar (Settings) to start.")
+        return
+
+    if chat is None:
+        cid = uuid.uuid4().hex
+        chat = st.session_state.chats[cid] = {"title": "New chat", "pinned": False, "created": pd.Timestamp.now().timestamp(), "messages": []}
+        st.session_state.cid = cid
+    files = [read_upload(f) for f in uploads]
+    chat["messages"].append({"role": "user", "content": text, "files": files})
+    if chat["title"] == "New chat":
+        chat["title"] = (text or files[0]["name"])[:40]
+
+    with st.chat_message("user"):
+        for a in files:
+            st.caption(f":material/description: {a['name']}")
+        st.markdown(text)
+    with st.chat_message("assistant"):
+        box = st.empty()
+        box.markdown("Thinking...")
+        try:
+            answer, sources = stream_answer(api_key, model, web, chat["messages"], box)
+            show_sources(sources)
+            chat["messages"].append({"role": "assistant", "content": answer, "sources": sources})
+        except Exception as e:  # keep the chat usable if the API fails
+            box.error(f"Something went wrong: {e}")
+            chat["messages"].pop()
+            return
+    save_chats()
     st.rerun()
 
-if not sales.empty:
-    with st.expander("Quick numbers from your data"):
-        x1,x2,x3 = st.columns(3)
-        x1.metric("Revenue", f"{data['revenue']:,.2f}")
-        x2.metric("Gross profit", f"{data['profit']:,.2f}")
-        x3.metric("Gross margin", f"{data['margin']:.1f}%")
-        st.caption(f"Data source: {source_name}")
-        if not data["products"].empty:
-            st.download_button("Download product report", data["products"].to_csv(index=False).encode("utf-8-sig"),
-                               "profitpilot_report.csv", "text/csv")
+
+main()
