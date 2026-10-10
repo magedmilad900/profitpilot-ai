@@ -1,297 +1,239 @@
+"""ProfitPilot AI — a focused business chat workspace.
+Run with: streamlit run app.py --server.port 3000 --server.address 0.0.0.0
 """
-ProfitPilot - an AI business advisor for small business owners.
+from __future__ import annotations
 
-Losing money?   It finds out why and gives a step-by-step fix.
-Making money?   It finds the fastest ways to grow profit.
-
-Run:  streamlit run app.py
-"""
+import io
 import json
-import uuid
-from pathlib import Path
+import re
+from datetime import datetime
+from typing import Any
 
 import pandas as pd
+import requests
 import streamlit as st
-from google import genai
-from google.genai import types
 
-# ───────────────────────── 1. Config ─────────────────────────
-APP_NAME = "ProfitPilot"
-STORE = Path("chats.json")
-MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"]
-FILE_TYPES = ["csv", "tsv", "xlsx", "txt", "md", "json", "pdf", "png", "jpg", "jpeg"]
+st.set_page_config(page_title="ProfitPilot AI", page_icon="PF", layout="wide", initial_sidebar_state="expanded")
 
-SYSTEM_PROMPT = """You are ProfitPilot, a friendly business advisor for small business owners.
-Talk in simple, warm English like a smart friend who knows business. Short sentences. No jargon
-(or explain it in one line). If the user writes in another language, answer in that language.
+SYSTEM_PROMPT = """You are ProfitPilot, a friendly business co-pilot. Reply in simple, natural English.
+Be practical, honest, and concise. Use headings or bullets when useful. If business data is provided,
+base your conclusions on it and state assumptions. If the user asks for current facts, use the research
+context when available. Never claim to have browsed if no sources were provided."""
 
-Your job has two modes. Work out which one applies from the user's numbers:
-
-1) LOSING MONEY or low profit -> be a business doctor:
-   - Check revenue, cost of goods, gross margin, fixed costs, discounts, returns, and break-even.
-   - Find the real cause (pricing too low, costs too high, weak products, slow sales, too many discounts...).
-   - Give a ranked fix list: what to do first, how, and the rough money impact.
-
-2) MAKING PROFIT -> be a growth coach:
-   - Find the best products, customers and channels, and what is holding profit back.
-   - Give practical levers: pricing, upsells and bundles, repeat customers, cutting weak items,
-     better marketing spend, cost savings.
-
-Rules:
-- If you lack numbers, ask 2-4 simple questions first (revenue, costs, best sellers, goals).
-- Use real figures from attached files. Show your math briefly. Never invent data.
-- Use tables for comparisons. End with "Next steps" (max 3 clear actions).
-- Use web search for market facts, competitor prices and trends, and name your sources.
-- Be honest when unsure. You are an advisor, not a lawyer or an accountant."""
-
-STARTERS = [
-    ("I'm losing money", "My business is losing money. Ask me a few simple questions, then help me find out why and how to fix it."),
-    ("I'm making a profit", "My business is making a profit. Help me find the fastest ways to grow it."),
-    ("Analyze my sales file", "I'll attach my sales file. Tell me what is working, what is not, and what to do next."),
-    ("Research my market", "Research my market and my competitors, and tell me where I can win."),
-]
-
-st.set_page_config(page_title=APP_NAME, page_icon=":material/trending_up:", layout="centered")
-
-# ───────────────────────── 2. Styling ─────────────────────────
-st.markdown("""
+CSS = """
 <style>
-#MainMenu, footer, header [data-testid="stToolbar"], [data-testid="stDecoration"]{display:none}
-.stApp{background:#fff}
-section[data-testid="stSidebar"]{background:#f7f7f8;border-right:1px solid #e5e5e8}
-[data-testid="stChatMessageAvatarUser"],[data-testid="stChatMessageAvatarAssistant"]{display:none}
-[data-testid="stChatMessage"]{background:none;padding:.4rem 0}
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]){
-  flex-direction:row-reverse;background:#f1f1f3;border-radius:20px;padding:.5rem 1.1rem;width:fit-content;max-width:85%;margin-left:auto}
-.stButton>button{border-radius:10px;border:1px solid #e5e5e8;background:#fff;color:#1a1a1c}
-.stButton>button:hover{background:#ececee;border-color:#e5e5e8;color:#1a1a1c}
-section[data-testid="stSidebar"] .stButton>button{border:0;background:transparent;text-align:left;justify-content:flex-start}
-section[data-testid="stSidebar"] .stButton>button:hover{background:#ececee}
-.hero{text-align:center;padding:12vh 0 1.5rem}
-.hero h1{font-size:2rem;font-weight:600;letter-spacing:-.02em;margin-bottom:.2rem}
-.hero p{color:#76767d}
-.src a{font-size:.78rem;color:#76767d;border:1px solid #e5e5e8;border-radius:999px;padding:2px 10px;margin-right:6px;text-decoration:none}
+:root { --ink:#171717; --muted:#737373; --line:#e8e8e8; --soft:#f7f7f7; --accent:#5b6ee1; }
+[data-testid="stAppViewContainer"] { background:#fff; }
+[data-testid="stHeader"] { background:rgba(255,255,255,.9); }
+.block-container { max-width:1280px; padding:0 2rem 2rem; }
+[data-testid="stSidebar"] { background:#fafafa; border-right:1px solid var(--line); }
+[data-testid="stSidebar"] > div:first-child { padding:1.1rem .8rem; }
+.brand { display:flex; align-items:center; gap:.65rem; padding:.4rem .35rem 1.25rem; }
+.brand-mark { width:30px; height:30px; border:1.5px solid #111; border-radius:9px; display:grid; place-items:center; font-size:11px; font-weight:700; letter-spacing:-.04em; }
+.brand-name { font-weight:700; letter-spacing:-.03em; font-size:16px; }
+.brand-sub { color:#999; font-size:11px; margin-top:1px; }
+.section-label { color:#999; text-transform:uppercase; letter-spacing:.12em; font-size:10px; font-weight:700; padding:1rem .5rem .45rem; }
+.chat-row { padding:.48rem .55rem; border-radius:9px; font-size:13px; margin:.12rem 0; color:#4a4a4a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chat-row.active { background:#ededed; color:#111; font-weight:600; }
+.empty { text-align:center; padding:9rem 1rem 2rem; }
+.empty-mark { width:46px; height:46px; border:1px solid #111; border-radius:14px; display:grid; place-items:center; margin:0 auto 1.35rem; font-weight:700; letter-spacing:-.08em; }
+.empty h1 { font-size:2.15rem; letter-spacing:-.055em; margin:0; color:#111; }
+.empty p { color:#777; font-size:14px; margin:.65rem 0 2rem; }
+.prompt-card { border:1px solid var(--line); border-radius:13px; padding:.9rem 1rem; min-height:86px; background:#fff; }
+.prompt-card b { font-size:13px; color:#222; } .prompt-card span { display:block; color:#888; font-size:12px; margin-top:.35rem; }
+.message { display:flex; gap:1rem; max-width:820px; margin:1.3rem auto; }
+.avatar { flex:0 0 28px; height:28px; border-radius:8px; display:grid; place-items:center; font-size:10px; font-weight:700; }
+.avatar.user { background:#ededed; color:#333; } .avatar.ai { border:1px solid #111; color:#111; }
+.message-body { font-size:15px; line-height:1.7; color:#222; min-width:0; }
+.message-meta { font-size:11px; color:#999; margin-bottom:.2rem; }
+.context { max-width:820px; margin:1rem auto; border:1px solid var(--line); border-radius:12px; padding:.7rem .9rem; background:#fbfbfb; color:#666; font-size:12px; }
+[data-testid="stForm"] { border:1px solid #dcdcdc; border-radius:15px; padding:.25rem .45rem; box-shadow:0 4px 20px rgba(0,0,0,.04); }
+button[kind="primary"] { background:#111 !important; border-color:#111 !important; }
+button { border-radius:9px !important; }
+.small-note { color:#999; font-size:11px; text-align:center; margin-top:.6rem; }
+hr { border-color:var(--line); }
 </style>
-""", unsafe_allow_html=True)
-
-# ───────────────────────── 3. Storage ─────────────────────────
-def load_chats() -> dict:
-    try:
-        return json.loads(STORE.read_text("utf-8"))
-    except Exception:
-        return {}
-
-
-def save_chats() -> None:
-    STORE.write_text(json.dumps(st.session_state.chats, ensure_ascii=False), "utf-8")
+"""
+st.markdown(CSS, unsafe_allow_html=True)
 
 
 def init_state() -> None:
-    st.session_state.setdefault("chats", load_chats())
-    st.session_state.setdefault("cid", None)
-    st.session_state.setdefault("blobs", {})  # PDFs / images stay in memory only
+    if "chats" not in st.session_state:
+        st.session_state.chats = [{"id": "welcome", "title": "Getting started", "pinned": True, "messages": []}]
+    if "active_id" not in st.session_state:
+        st.session_state.active_id = "welcome"
+    if "gemini_key" not in st.session_state:
+        st.session_state.gemini_key = ""
+    if "tavily_key" not in st.session_state:
+        st.session_state.tavily_key = ""
+    if "file_context" not in st.session_state:
+        st.session_state.file_context = ""
+    if "file_name" not in st.session_state:
+        st.session_state.file_name = ""
 
 
-def current_chat() -> dict | None:
-    return st.session_state.chats.get(st.session_state.cid)
+def active_chat() -> dict[str, Any]:
+    return next(c for c in st.session_state.chats if c["id"] == st.session_state.active_id)
 
 
-# ───────────────────────── 4. File analysis ─────────────────────────
-def to_number(series: pd.Series) -> pd.Series:
-    cleaned = series.astype(str).str.replace(r"[^0-9.\-]", "", regex=True)
-    return pd.to_numeric(cleaned, errors="coerce")
+def new_chat() -> None:
+    cid = datetime.now().strftime("chat-%Y%m%d%H%M%S%f")
+    st.session_state.chats.insert(0, {"id": cid, "title": "New conversation", "pinned": False, "messages": []})
+    st.session_state.active_id = cid
 
 
-def snapshot(df: pd.DataFrame) -> str:
-    """Quick, reliable numbers computed with pandas so the AI does not have to guess."""
-    cols = {c.lower(): c for c in df.columns}
-    find = lambda keys: next((cols[c] for c in cols if any(k in c for k in keys)), None)
-    rev, cost, prof = find(["revenue", "sales", "amount", "total"]), find(["cogs", "cost", "expense"]), find(["profit"])
-    item, date = find(["product", "item", "name", "category"]), find(["date", "month", "day"])
-
-    out = [f"Rows: {len(df)} | Columns: {', '.join(map(str, df.columns))}",
-           "(Columns below were auto-detected - double-check they are right.)"]
-    d = df.copy()
-    for c in (rev, cost, prof):
-        if c:
-            d[c] = to_number(d[c])
-    profit = d[prof] if prof else (d[rev] - d[cost] if rev and cost else None)
-    if rev:
-        out.append(f"Total revenue ({rev}): {d[rev].sum():,.2f}")
-    if cost:
-        out.append(f"Total cost ({cost}): {d[cost].sum():,.2f}")
-    if profit is not None:
-        total, revenue = profit.sum(), d[rev].sum() if rev else 0
-        out.append(f"Total profit: {total:,.2f}" + (f" | Margin: {total / revenue:.1%}" if revenue else ""))
-        out.append(f"Loss-making rows: {(profit < 0).sum()} of {len(d)}")
-        if item:
-            by = profit.groupby(d[item]).sum().sort_values()
-            out.append(f"Top 5 by profit ({item}):\n{by.tail(5)[::-1].round(2).to_string()}")
-            out.append(f"Bottom 5 by profit ({item}):\n{by.head(5).round(2).to_string()}")
-        if date:
-            when = pd.to_datetime(d[date], errors="coerce")
-            if when.notna().any():
-                out.append(f"Profit by month:\n{profit.groupby(when.dt.to_period('M')).sum().round(2).to_string()}")
-    return "\n".join(out)
+def parse_upload(uploaded_file: Any) -> tuple[str, str]:
+    name = uploaded_file.name
+    raw = uploaded_file.getvalue()
+    try:
+        if name.lower().endswith(".csv"):
+            df = pd.read_csv(io.BytesIO(raw))
+            summary = f"File: {name}\nRows: {len(df):,}\nColumns: {', '.join(map(str, df.columns))}\n\nPreview:\n{df.head(12).to_csv(index=False)}"
+            numeric = df.select_dtypes(include="number")
+            if not numeric.empty:
+                summary += f"\nNumeric totals:\n{numeric.sum(numeric_only=True).to_string()}"
+            return name, summary[:18000]
+        if name.lower().endswith(".txt") or name.lower().endswith(".md"):
+            return name, raw.decode("utf-8", errors="ignore")[:18000]
+        if name.lower().endswith(".pdf"):
+            from pypdf import PdfReader
+            text = "\n".join((page.extract_text() or "") for page in PdfReader(io.BytesIO(raw)).pages)
+            return name, text[:18000]
+        if name.lower().endswith(".docx"):
+            from docx import Document
+            doc = Document(io.BytesIO(raw))
+            return name, "\n".join(p.text for p in doc.paragraphs)[:18000]
+        return name, "This file type is not supported yet. Please upload CSV, PDF, DOCX, TXT, or MD."
+    except Exception as exc:
+        return name, f"Could not read this file: {exc}"
 
 
-def read_upload(f) -> dict:
-    """Turn an uploaded file into {name, text} or {name, mime, id}."""
-    name, ext = f.name, f.name.rsplit(".", 1)[-1].lower()
-    if ext in ("csv", "tsv", "xlsx"):
-        df = pd.read_excel(f) if ext == "xlsx" else pd.read_csv(f, sep=None, engine="python")
-        return {"name": name, "text": snapshot(df) + "\n\nData (first rows):\n" + df.head(400).to_csv(index=False)[:100_000]}
-    if ext in ("txt", "md", "json"):
-        return {"name": name, "text": f.getvalue().decode("utf-8", "ignore")[:100_000]}
-    fid = uuid.uuid4().hex
-    st.session_state.blobs[fid] = f.getvalue()
-    return {"name": name, "id": fid, "mime": "application/pdf" if ext == "pdf" else f"image/{'jpeg' if ext == 'jpg' else ext}"}
+def research(query: str) -> tuple[str, list[dict[str, str]]]:
+    key = st.session_state.tavily_key.strip()
+    if not key:
+        return "", []
+    try:
+        response = requests.post("https://api.tavily.com/search", json={"api_key": key, "query": query, "search_depth": "basic", "max_results": 5}, timeout=20)
+        response.raise_for_status()
+        results = response.json().get("results", [])
+        context = "\n\n".join(f"Source: {r.get('title')}\nURL: {r.get('url')}\nContent: {r.get('content', '')}" for r in results)
+        sources = [{"title": r.get("title", "Source"), "url": r.get("url", "")} for r in results]
+        return context[:12000], sources
+    except Exception as exc:
+        return f"Research unavailable: {exc}", []
 
 
-# ───────────────────────── 5. Gemini ─────────────────────────
-def build_contents(messages: list[dict]) -> list[types.Content]:
+def ask_gemini(messages: list[dict[str, str]], research_context: str = "") -> str:
+    key = st.session_state.gemini_key.strip()
+    if not key:
+        return local_reply(messages[-1]["content"], bool(st.session_state.file_context))
     contents = []
-    for m in messages:
-        parts = []
-        for a in m.get("files", []):
-            if a.get("text"):
-                parts.append(types.Part(text=f"[File: {a['name']}]\n{a['text']}"))
-            elif a.get("id") in st.session_state.blobs:
-                parts.append(types.Part.from_bytes(data=st.session_state.blobs[a["id"]], mime_type=a["mime"]))
-            else:
-                parts.append(types.Part(text=f"[File '{a['name']}' is no longer available. Ask the user to re-attach it if needed.]"))
-        if m["content"]:
-            parts.append(types.Part(text=m["content"]))
-        if parts:
-            contents.append(types.Content(role="user" if m["role"] == "user" else "model", parts=parts))
-    return contents
+    for message in messages[-12:]:
+        contents.append({"role": "user" if message["role"] == "user" else "model", "parts": [{"text": message["content"]}]})
+    prompt = SYSTEM_PROMPT
+    if st.session_state.file_context:
+        prompt += "\n\nBusiness file context:\n" + st.session_state.file_context
+    if research_context:
+        prompt += "\n\nResearch context:\n" + research_context
+    body = {"system_instruction": {"parts": [{"text": prompt}]}, "contents": contents, "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1200}}
+    try:
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        result = requests.post(url, params={"key": key}, json=body, timeout=45)
+        result.raise_for_status()
+        return result.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as exc:
+        return f"I couldn’t reach Gemini right now. Check your API key and connection.\n\nTechnical note: {exc}"
 
 
-def stream_answer(api_key: str, model: str, web: bool, messages: list[dict], box) -> tuple[str, list[dict]]:
-    client = genai.Client(api_key=api_key)
-    config = types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT,
-        tools=[types.Tool(google_search=types.GoogleSearch())] if web else None,
-    )
-    text, sources = "", {}
-    for chunk in client.models.generate_content_stream(model=model, contents=build_contents(messages), config=config):
-        text += chunk.text or ""
-        for cand in chunk.candidates or []:
-            meta = cand.grounding_metadata
-            for g in (meta.grounding_chunks or []) if meta else []:
-                if g.web:
-                    sources[g.web.uri] = g.web.title or g.web.uri
-        box.markdown(text + " ▌")
-    box.markdown(text)
-    return text, [{"uri": u, "title": t} for u, t in sources.items()]
+def local_reply(question: str, has_file: bool) -> str:
+    q = question.lower()
+    if has_file and any(word in q for word in ["sales", "revenue", "profit", "margin", "data", "file"]):
+        return "I can see your business file, but I need a Gemini API key to give you a full natural-language analysis. Add it from Settings, then ask me about revenue, profit, best products, or growth opportunities."
+    if any(word in q for word in ["hello", "hi", "hey"]):
+        return "Hey — I’m ProfitPilot. Ask me about your business, research, writing, or your next best move."
+    return "I’m ready to help. Add a Gemini API key in Settings for full AI answers, file analysis, and research. Without a key, I can still guide you through the setup."
 
 
-def show_sources(sources: list[dict]) -> None:
-    if sources:
-        links = "".join(f'<a href="{s["uri"]}" target="_blank">{s["title"][:40]}</a>' for s in sources)
-        st.markdown(f'<div class="src">{links}</div>', unsafe_allow_html=True)
+def render_message(message: dict[str, Any]) -> None:
+    role = message["role"]
+    initials = "PF" if role == "assistant" else "You"
+    st.markdown(f"<div class='message'><div class='avatar {'ai' if role == 'assistant' else 'user'}'>{initials}</div><div class='message-body'><div class='message-meta'>{'ProfitPilot' if role == 'assistant' else 'You'}</div>{message['content']}</div></div>", unsafe_allow_html=True)
+    if message.get("sources"):
+        links = " · ".join(f"[{s['title']}]({s['url']})" for s in message["sources"] if s.get("url"))
+        st.markdown(f"<div class='context'><b>Sources</b><br>{links}</div>", unsafe_allow_html=True)
 
 
-# ───────────────────────── 6. Sidebar ─────────────────────────
-def sidebar() -> tuple[str, str, bool]:
-    chats = st.session_state.chats
-    with st.sidebar:
-        st.markdown(f"### {APP_NAME}")
-        if st.button("New chat", icon=":material/add:", use_container_width=True):
-            st.session_state.cid = None
-            st.rerun()
+init_state()
 
-        query = st.text_input("Search chats", placeholder="Search chats", label_visibility="collapsed").lower()
-        shown = [(i, c) for i, c in chats.items() if query in c["title"].lower()]
-        shown.sort(key=lambda x: (not x[1].get("pinned"), -x[1]["created"]))
-
-        for i, c in shown:
-            a, b, d = st.columns([6, 1.3, 1.3], gap="small")
-            label = ("● " if i == st.session_state.cid else "") + c["title"]
-            if a.button(label, key=f"o{i}", use_container_width=True):
-                st.session_state.cid = i
+with st.sidebar:
+    st.markdown("<div class='brand'><div class='brand-mark'>PF</div><div><div class='brand-name'>ProfitPilot</div><div class='brand-sub'>AI business workspace</div></div></div>", unsafe_allow_html=True)
+    if st.button("＋  New chat", use_container_width=True, type="primary"):
+        new_chat(); st.rerun()
+    st.markdown("<div class='section-label'>Pinned</div>", unsafe_allow_html=True)
+    pinned = [c for c in st.session_state.chats if c["pinned"]]
+    for chat in pinned:
+        if st.button("⌖  " + chat["title"], key="pin-" + chat["id"], use_container_width=True):
+            st.session_state.active_id = chat["id"]; st.rerun()
+    st.markdown("<div class='section-label'>Your chats</div>", unsafe_allow_html=True)
+    for chat in [c for c in st.session_state.chats if not c["pinned"]]:
+        col1, col2 = st.columns([5, 1], gap="small")
+        with col1:
+            if st.button(chat["title"], key="chat-" + chat["id"], use_container_width=True):
+                st.session_state.active_id = chat["id"]; st.rerun()
+        with col2:
+            if st.button("×", key="del-" + chat["id"], help="Delete chat"):
+                st.session_state.chats = [c for c in st.session_state.chats if c["id"] != chat["id"]]
+                if not st.session_state.chats: new_chat()
+                else: st.session_state.active_id = st.session_state.chats[0]["id"]
                 st.rerun()
-            if b.button("", key=f"p{i}", icon=":material/push_pin:" if c.get("pinned") else ":material/keep:", help="Pin / unpin"):
-                c["pinned"] = not c.get("pinned")
-                save_chats()
-                st.rerun()
-            if d.button("", key=f"d{i}", icon=":material/delete:", help="Delete chat"):
-                chats.pop(i)
-                if st.session_state.cid == i:
-                    st.session_state.cid = None
-                save_chats()
-                st.rerun()
+    st.divider()
+    with st.expander("Settings", expanded=False):
+        st.caption("Keys stay in this session and are never shown in the chat.")
+        st.session_state.gemini_key = st.text_input("Gemini API key", type="password", value=st.session_state.gemini_key)
+        st.session_state.tavily_key = st.text_input("Tavily search key (optional)", type="password", value=st.session_state.tavily_key)
+        if st.session_state.gemini_key:
+            st.success("Gemini connected", icon="✓")
+        else:
+            st.info("Add Gemini to unlock full AI chat.")
 
-        st.divider()
-        with st.expander("Settings", icon=":material/settings:"):
-            try:
-                key = st.secrets.get("GEMINI_API_KEY", "")
-            except Exception:  # no secrets file
-                key = ""
-            key = key or st.text_input("Gemini API key", type="password", help="Free at aistudio.google.com/apikey")
-            model = st.selectbox("Model", MODELS)
-            web = st.toggle("Search the web", value=True)
-    return key, model, web
+chat = active_chat()
+st.markdown("<div style='height:1.3rem'></div>", unsafe_allow_html=True)
 
+if not chat["messages"]:
+    st.markdown("<div class='empty'><div class='empty-mark'>PF</div><h1>What can I help you with?</h1><p>Your business, research, ideas, and everyday questions.</p></div>", unsafe_allow_html=True)
+    cards = [("Analyze my business", "Understand sales, costs, and profit."), ("Research a topic", "Find information and useful sources."), ("Write something", "Plans, emails, reports, and ideas."), ("Solve a problem", "Think through the next best step.")]
+    cols = st.columns(4, gap="small")
+    for col, (title, desc) in zip(cols, cards):
+        with col:
+            st.markdown(f"<div class='prompt-card'><b>{title}</b><span>{desc}</span></div>", unsafe_allow_html=True)
+else:
+    for message in chat["messages"]:
+        render_message(message)
 
-# ───────────────────────── 7. Main ─────────────────────────
-def main() -> None:
-    init_state()
-    api_key, model, web = sidebar()
-    chat = current_chat()
+uploaded = st.file_uploader("Attach a file", type=["csv", "pdf", "docx", "txt", "md"], label_visibility="collapsed")
+if uploaded:
+    name, context = parse_upload(uploaded)
+    st.session_state.file_name, st.session_state.file_context = name, context
+    st.caption(f"Attached: {name} · ready for analysis")
 
-    # Past messages
-    if chat:
-        for m in chat["messages"]:
-            with st.chat_message(m["role"]):
-                for a in m.get("files", []):
-                    st.caption(f":material/description: {a['name']}")
-                st.markdown(m["content"])
-                show_sources(m.get("sources", []))
-    else:
-        st.markdown('<div class="hero"><h1>How is your business doing?</h1>'
-                    '<p>Tell me your numbers. I will find where money leaks, or where it can grow.</p></div>',
-                    unsafe_allow_html=True)
-        cols = st.columns(2)
-        for n, (title, prompt) in enumerate(STARTERS):
-            if cols[n % 2].button(f"**{title}**\n\n{prompt}", key=f"s{n}", use_container_width=True):
-                st.session_state.queued = prompt
+with st.form("chat_form", clear_on_submit=True):
+    prompt = st.text_area("Message ProfitPilot…", height=72, label_visibility="collapsed", placeholder="Message ProfitPilot…")
+    send_col, action_col = st.columns([6, 1])
+    with send_col:
+        submitted = st.form_submit_button("Send", type="primary", use_container_width=True)
+    with action_col:
+        research_mode = st.form_submit_button("Research", use_container_width=True)
 
-    # New input
-    entry = st.chat_input("Message ProfitPilot", accept_file="multiple", file_type=FILE_TYPES)
-    text, uploads = (entry.text, entry.files) if entry else (st.session_state.pop("queued", ""), [])
-    if not (text or uploads):
-        return
-    if not api_key:
-        st.warning("Add your Gemini API key in the sidebar (Settings) to start.")
-        return
+if submitted or research_mode:
+    prompt = (prompt or "").strip()
+    if prompt:
+        if chat["title"] == "New conversation":
+            chat["title"] = re.sub(r"\s+", " ", prompt)[:34] + ("…" if len(prompt) > 34 else "")
+        chat["messages"].append({"role": "user", "content": prompt})
+        with st.spinner("Thinking…"):
+            research_context, sources = research(prompt) if research_mode else ("", [])
+            answer = ask_gemini(chat["messages"], research_context)
+        chat["messages"].append({"role": "assistant", "content": answer, "sources": sources})
+        st.rerun()
 
-    if chat is None:
-        cid = uuid.uuid4().hex
-        chat = st.session_state.chats[cid] = {"title": "New chat", "pinned": False, "created": pd.Timestamp.now().timestamp(), "messages": []}
-        st.session_state.cid = cid
-    files = [read_upload(f) for f in uploads]
-    chat["messages"].append({"role": "user", "content": text, "files": files})
-    if chat["title"] == "New chat":
-        chat["title"] = (text or files[0]["name"])[:40]
-
-    with st.chat_message("user"):
-        for a in files:
-            st.caption(f":material/description: {a['name']}")
-        st.markdown(text)
-    with st.chat_message("assistant"):
-        box = st.empty()
-        box.markdown("Thinking...")
-        try:
-            answer, sources = stream_answer(api_key, model, web, chat["messages"], box)
-            show_sources(sources)
-            chat["messages"].append({"role": "assistant", "content": answer, "sources": sources})
-        except Exception as e:  # keep the chat usable if the API fails
-            box.error(f"Something went wrong: {e}")
-            chat["messages"].pop()
-            return
-    save_chats()
-    st.rerun()
-
-
-main()
+st.markdown("<div class='small-note'>ProfitPilot can make mistakes. Check important business decisions with your own data.</div>", unsafe_allow_html=True)
