@@ -7,7 +7,6 @@ from datetime import datetime
 from urllib.parse import quote_plus
 
 import pandas as pd
-import plotly.express as px
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
@@ -23,11 +22,6 @@ html, body, [data-testid="stAppViewContainer"], button, input, textarea, label, 
 h1, h2, h3, h4, [data-testid="stMetricValue"], .stage-copy h2 { font-family:'Bangers','Fredoka','Comic Sans MS',cursive !important; font-weight:400 !important; letter-spacing:.02em; }
 .stage-copy p, .story, .advice-card, [data-testid="stChatMessage"] { font-family:'Patrick Hand','Fredoka','Comic Sans MS',cursive !important; font-size:1.12rem; }
 .insight, .insight *, [data-testid="stExpander"] [data-testid="stMarkdownContainer"] p, [data-testid="stExpander"] [data-testid="stMarkdownContainer"] li { font-family:'Patrick Hand','Fredoka','Comic Sans MS',cursive !important; font-size:1.12rem; line-height:1.45; }
-.scorecard-wrap { overflow-x:auto; border:2px solid #191919; border-radius:16px; background:#fff; box-shadow:4px 5px 0 #191919; }
-.scorecard-table { width:100%; border-collapse:separate; border-spacing:0; font-family:'Fredoka','Comic Sans MS',cursive; font-size:.93rem; }
-.scorecard-table th { background:#ffcf56; color:#191919; font-family:'Bangers','Fredoka',cursive; font-size:1.05rem; letter-spacing:.04em; padding:.75rem .65rem; text-align:left; border-bottom:2px solid #191919; white-space:nowrap; }
-.scorecard-table td { padding:.7rem .65rem; border-bottom:1px solid #eadfca; font-family:'Fredoka','Comic Sans MS',cursive; white-space:nowrap; }
-.scorecard-table tr:nth-child(even) td { background:#fff8e8; } .scorecard-table tr:last-child td { border-bottom:0; }
 .block-container { padding: 2.5rem 2rem 4rem; max-width: 980px; }
 [data-testid="stSidebar"] { background:#f7f7f7; border-right:1px solid #e5e5e5; }
 [data-testid="stSidebar"] .block-container { padding:1.3rem 1rem; }
@@ -57,6 +51,7 @@ h1, h2, h3, h4, [data-testid="stMetricValue"], .stage-copy h2 { font-family:'Ban
 [data-testid="stSidebar"] .side-link { border:2px solid transparent; transition:transform .2s ease, background .2s ease; }
 [data-testid="stSidebar"] .side-link:hover { background:#ffcf56; border-color:#191919; transform:rotate(-1deg) translateX(3px); }
 [data-testid="stSidebar"] [data-testid="stFileUploader"] { border:2px dashed #191919; border-radius:16px; background:#fff; padding:.35rem; }
+[data-testid="stSidebar"] .stButton > button { font-size:.72rem !important; padding:.35rem .2rem !important; }
 .stButton > button { border:2px solid #191919; border-radius:14px; background:#8fd3ff; color:#191919; font-weight:700; box-shadow:4px 5px 0 #191919; transition:transform .16s ease, box-shadow .16s ease; }
 .stButton > button:hover { background:#ffcf56; color:#191919; transform:translate(-2px,-2px) rotate(-1deg); box-shadow:6px 7px 0 #191919; }
 .stButton > button:active { transform:translate(2px,2px); box-shadow:2px 2px 0 #191919; }
@@ -239,16 +234,63 @@ def assistant_reply(question: str, df, products, daily, revenue, gross_profit, e
     return answer, sources
 
 
-# ---------- Simple project sidebar ----------
+# ---------- Conversation state ----------
+def chat_id() -> str:
+    return datetime.now().strftime("chat-%Y%m%d%H%M%S%f")
+
+
+def new_chat_record(title: str = "New chat") -> dict:
+    return {"id": chat_id(), "title": title, "pinned": False, "created": datetime.now().isoformat(), "messages": []}
+
+
+if "chats" not in st.session_state:
+    first_chat = new_chat_record("Business analysis")
+    st.session_state.chats = {first_chat["id"]: first_chat}
+    st.session_state.active_chat_id = first_chat["id"]
+
+
+def active_chat() -> dict:
+    return st.session_state.chats[st.session_state.active_chat_id]
+
+
+# ---------- Conversation sidebar ----------
 with st.sidebar:
     st.markdown('<div class="brand-row"><div class="arrow-logo">↗</div><div><div class="brand-name">ProfitPilot</div><div class="brand-sub">AI + Business</div></div></div>', unsafe_allow_html=True)
     if st.button("＋  New chat", width="stretch"):
-        st.session_state.chat_messages = []
+        record = new_chat_record()
+        st.session_state.chats[record["id"]] = record
+        st.session_state.active_chat_id = record["id"]
         st.rerun()
     st.markdown('<div class="side-link active">⌂  Chat</div>', unsafe_allow_html=True)
-    st.markdown('<div class="side-link">▣  Dashboard</div>', unsafe_allow_html=True)
-    st.markdown('<div class="side-link">⌁  Data</div>', unsafe_allow_html=True)
-    st.markdown('<div class="side-link">ⓘ  About</div>', unsafe_allow_html=True)
+    st.divider()
+    st.caption("CHATS")
+    ordered_chats = sorted(st.session_state.chats.values(), key=lambda item: (not item["pinned"], item["created"]), reverse=False)
+    for record in ordered_chats:
+        row = st.columns([4.6, 1.6], gap="small")
+        label = ("Pinned · " if record["pinned"] else "") + ("• " if record["id"] == st.session_state.active_chat_id else "") + record["title"]
+        if row[0].button(label, key=f"open-{record['id']}", width="stretch"):
+            st.session_state.active_chat_id = record["id"]
+            st.rerun()
+        with row[1].popover("...", use_container_width=True):
+            if st.button("Unpin" if record["pinned"] else "Pin", key=f"pin-{record['id']}", width="stretch"):
+                record["pinned"] = not record["pinned"]
+                st.rerun()
+            rename_value = st.text_input("Chat name", value=record["title"], key=f"rename-input-{record['id']}")
+            if st.button("Save name", key=f"save-name-{record['id']}", width="stretch"):
+                cleaned = rename_value.strip()[:48]
+                if cleaned:
+                    record["title"] = cleaned
+                st.rerun()
+            if st.button("Delete", key=f"delete-{record['id']}", width="stretch"):
+                if len(st.session_state.chats) == 1:
+                    record["messages"] = []
+                    record["title"] = "New chat"
+                    record["pinned"] = False
+                else:
+                    del st.session_state.chats[record["id"]]
+                    if st.session_state.active_chat_id == record["id"]:
+                        st.session_state.active_chat_id = next(iter(st.session_state.chats))
+                st.rerun()
     st.divider()
     st.caption("PROJECT DEMO")
     uploaded = st.file_uploader("Upload sales CSV", type=["csv"], label_visibility="visible")
@@ -284,12 +326,13 @@ components.html('''
   #scene:before,#scene:after { content:""; position:absolute; border-radius:50%; opacity:.75; animation:drift 8s ease-in-out infinite; }
   #scene:before { width:120px; height:120px; background:#ffcf56; right:7%; top:12%; }
   #scene:after { width:76px; height:76px; background:#8fd3ff; left:7%; bottom:10%; animation-delay:-3s; }
-  .copy { position:absolute; z-index:2; left:38px; top:38px; max-width:480px; }
+  .copy { position:absolute; z-index:2; left:34px; top:34px; max-width:500px; }
+  .copy-card { padding:22px 25px 20px; border:2px solid #191919; border-radius:22px; background:rgba(255,255,255,.78); box-shadow:5px 6px 0 #191919; }
   .kicker { font-size:12px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#555; }
   h2 { font-family:'Bangers','Fredoka','Comic Sans MS',cursive; font-size:47px; line-height:1.02; letter-spacing:1px; margin:10px 0 12px; color:#151515; }
   p { color:#555; max-width:390px; line-height:1.5; font-size:18px; font-family:'Patrick Hand','Comic Sans MS',cursive; }
   #bot { position:absolute; z-index:3; right:8%; bottom:8px; width:290px; transform-origin:50% 100%; transition:transform .18s cubic-bezier(.2,.8,.2,1); animation:bob 4.5s ease-in-out infinite; }
-  #arrow-mascot { position:absolute; z-index:3; right:15%; bottom:66px; width:128px; height:128px; display:flex; align-items:center; justify-content:center; border:8px solid #191919; border-radius:38px; background:#8fd3ff; color:#191919; font:700 76px 'Fredoka','Comic Sans MS',cursive; box-shadow:8px 9px 0 #191919; transform-origin:50% 100%; transition:transform .18s cubic-bezier(.2,.8,.2,1); animation:bob 4.5s ease-in-out infinite; }
+  #arrow-mascot { position:absolute; z-index:3; right:15%; bottom:66px; width:128px; height:128px; display:flex; align-items:center; justify-content:center; border:8px solid #191919; border-radius:38px; background:#8fd3ff; color:#191919; box-shadow:8px 9px 0 #191919; font:700 76px 'Fredoka','Comic Sans MS',cursive; transform-origin:50% 100%; transition:transform .18s cubic-bezier(.2,.8,.2,1); animation:bob 4.5s ease-in-out infinite; }
   .hose { fill:none; stroke:#191919; stroke-width:7; stroke-linecap:round; stroke-linejoin:round; }
   .eye-white { fill:#fff; stroke:#191919; stroke-width:5; }
   .pupil { fill:#191919; transition:transform .12s ease-out; }
@@ -306,7 +349,7 @@ components.html('''
   @keyframes blink { 0%,44%,48%,100% { transform:scaleY(1); } 46% { transform:scaleY(.1); } }
 </style>
 <div id="scene">
-  <div class="copy"><div class="kicker">A tiny business analyst</div><h2>Find the leak<br>fix the business</h2><p>ProfitPilot looks at your numbers and turns them into one clear next move</p></div>
+  <div class="copy"><div class="copy-card"><div class="kicker">A tiny business analyst</div><h2>Find the leak<br>fix the business</h2><p>ProfitPilot looks at your numbers and turns them into one clear next move</p></div></div>
   <div class="spark spark-one"></div><div class="spark spark-two"></div>
   <div id="arrow-mascot" aria-label="ProfitPilot arrow mascot">↗</div>
 </div>
@@ -341,72 +384,21 @@ with b3:
 
 st.markdown(f'<div class="advice-card"><b>ProfitPilot says</b>{html.escape(st.session_state.advice_text)}</div>', unsafe_allow_html=True)
 
-if "chat_messages" not in st.session_state:
-    st.session_state.chat_messages = []
-with st.expander("Ask a custom question", expanded=False):
-    for message in st.session_state.chat_messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-            for source in message.get("sources", []):
-                st.markdown(f"<div class='source'>↗ <a href='{html.escape(source['url'], quote=True)}' target='_blank'>{html.escape(source['title'])}</a></div>", unsafe_allow_html=True)
-    question = st.chat_input("Ask about profit products or your next move")
-    if question:
-        st.session_state.chat_messages.append({"role": "user", "content": question, "sources": []})
-        answer, sources = assistant_reply(question, df, products, daily, revenue, gross_profit, expenses, net_profit, margin, insights)
-        st.session_state.chat_messages.append({"role": "assistant", "content": answer, "sources": sources})
-        st.rerun()
-
-# ---------- Dashboard ----------
-with st.expander("Open business dashboard", expanded=False):
-    st.subheader("Business snapshot")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Revenue", f"${revenue:,.2f}")
-    c2.metric("Gross profit", f"${gross_profit:,.2f}")
-    c3.metric("Operating expense", f"${expenses:,.2f}")
-    c4.metric("Net profit", f"${net_profit:,.2f}")
-    c5.metric("Gross margin", f"{margin:.1f}%")
-    
-    st.subheader("What the data is telling us")
-    for kind, text in insights:
-        css_class = "insight loss" if kind == "loss" else "insight risk" if kind == "risk" else "insight"
-        st.markdown(f"<div class='{css_class}'>{html.escape(text)}</div>", unsafe_allow_html=True)
-    
-    left, right = st.columns(2)
-    with left:
-        fig = px.line(daily, x="date", y=["revenue", "net_profit"], markers=True, title="Revenue vs. net profit", color_discrete_sequence=["#f28c8c", "#6bb8ff"])
-        fig.update_layout(legend_title_text="Metric", margin=dict(l=10, r=10, t=50, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,.55)", font_family="Fredoka")
-        st.plotly_chart(fig, width="stretch")
-    with right:
-        chart = products.sort_values("net_profit", ascending=True)
-        fig2 = px.bar(chart, x="net_profit", y="product", orientation="h", title="Net profit by product", labels={"net_profit": "Net profit", "product": "Product"}, color_discrete_sequence=["#ffcf56"])
-        fig2.update_layout(margin=dict(l=10, r=10, t=50, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,.55)", font_family="Fredoka")
-        st.plotly_chart(fig2, width="stretch")
-    
-    st.subheader("Product scorecard")
-    display = products.copy()
-    for column in ["revenue", "cost", "gross_profit", "operating_expense", "net_profit"]:
-        display[column] = display[column].map(lambda value: f"${value:,.2f}")
-    display["margin_pct"] = display["margin_pct"].map(lambda value: f"{value:.1f}%")
-    display["net_margin_pct"] = display["net_margin_pct"].map(lambda value: f"{value:.1f}%")
-    scorecard_html = display.to_html(index=False, escape=True, classes="scorecard-table", border=0)
-    st.markdown(f'<div class="scorecard-wrap">{scorecard_html}</div>', unsafe_allow_html=True)
-    
-    st.subheader("Recommended action plan")
-    for step in build_action_plan(products, net_profit, insights):
-        st.markdown(step)
-    
-    st.download_button("Download product scorecard CSV", data=products.to_csv(index=False).encode("utf-8"), file_name="profitpilot_product_scorecard.csv", mime="text/csv", width="stretch")
-    
-    with st.expander("CSV format and assumptions"):
-        st.markdown("""
-    Your CSV must contain:
-    
-    - `date`: transaction date, for example `2026-09-01`
-    - `product`: product name
-    - `units`: number of units sold
-    - `unit_price`: selling price per unit
-    - `unit_cost`: direct cost per unit
-    - `operating_expense` (optional): daily expense, overhead, or campaign cost
-    
-    Revenue = units × unit price. Gross profit = revenue − direct cost. Net profit = gross profit − operating expense. This is decision support, not financial advice; validate the data before acting.
-    """)
+current_chat = active_chat()
+st.markdown(f'<div class="chat-heading">{html.escape(current_chat["title"])} · Ask the business analyst</div>', unsafe_allow_html=True)
+if not current_chat["messages"]:
+    st.markdown('<div class="advice-card"><b>ProfitPilot is ready</b>Ask why a product is weak what is driving profit or what to do next</div>', unsafe_allow_html=True)
+for message in current_chat["messages"]:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+        for source in message.get("sources", []):
+            st.markdown(f"<div class='source'>↗ <a href='{html.escape(source['url'], quote=True)}' target='_blank'>{html.escape(source['title'])}</a></div>", unsafe_allow_html=True)
+question = st.chat_input("Ask about profit products or your next move")
+if question:
+    if current_chat["title"] in {"New chat", "Business analysis"}:
+        compact_title = " ".join(question.strip().split())[:36]
+        current_chat["title"] = compact_title or "New chat"
+    current_chat["messages"].append({"role": "user", "content": question, "sources": []})
+    answer, sources = assistant_reply(question, df, products, daily, revenue, gross_profit, expenses, net_profit, margin, insights)
+    current_chat["messages"].append({"role": "assistant", "content": answer, "sources": sources})
+    st.rerun()
