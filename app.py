@@ -322,7 +322,7 @@ components.html('''
   * { box-sizing:border-box; }
   @import url('https://fonts.googleapis.com/css2?family=Bangers&family=Fredoka:wght@400;500;600;700&family=Patrick+Hand&display=swap');
   body { margin:0; background:transparent; font-family:'Fredoka','Comic Sans MS',cursive; }
-  #scene { position:relative; overflow:hidden; height:360px; border:2px solid #191919; border-radius:28px; background:#fff8e8; box-shadow:7px 8px 0 #191919; cursor:crosshair; }
+  #scene { position:relative; overflow:hidden; height:360px; border:none; border-radius:0; background:transparent; box-shadow:none; cursor:crosshair; }
   #scene:before,#scene:after { content:""; position:absolute; border-radius:50%; opacity:.75; animation:drift 8s ease-in-out infinite; }
   #scene:before { width:120px; height:120px; background:#ffcf56; right:7%; top:12%; }
   #scene:after { width:76px; height:76px; background:#8fd3ff; left:7%; bottom:10%; animation-delay:-3s; }
